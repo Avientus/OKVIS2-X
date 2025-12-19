@@ -177,6 +177,14 @@ class Publisher
    */
   void publishOccupancyGridAsCallback(const State& latest_state,
                                       const AlignedUnorderedMap<uint64_t, se::Submap<okvis::SupereightMapType>>& seSubmapLookup);
+  
+  /**
+   * @brief Extract and store occupancy grid from a submap
+   * @param submap_id Submap ID
+   * @param submap Submap data
+   */
+  void extractSubmapOccupancyGrid(uint64_t submap_id,
+                                   const se::Submap<okvis::SupereightMapType>& submap);
 
   /**
    * @brief Set the height at which to generate the occupancy grid (in world frame)
@@ -254,6 +262,8 @@ class Publisher
   okvis::ThreadedPublisher::PublisherHandle<visualization_msgs::msg::Marker> slice_pub_;
   /// \brief The publisher for the occupancy grid.
   okvis::ThreadedPublisher::PublisherHandle<nav_msgs::msg::OccupancyGrid> pubOccupancyGrid_;
+  /// \brief The publisher for submap boundary visualization.
+  okvis::ThreadedPublisher::PublisherHandle<visualization_msgs::msg::MarkerArray> pubSubmapBounds_;
 
   /// \brief Image publishers.
   std::map<std::string, okvis::ThreadedPublisher::PublisherHandle<sensor_msgs::msg::Image>> pubImages_; ///< Image publisher map.
@@ -283,6 +293,31 @@ class Publisher
   std::unordered_map<uint64_t, okvis::SupereightMapType::SurfaceMesh> submapSurfaceMesh_; ///< Surface meshes for submaps.
   std::unordered_map<uint64_t, visualization_msgs::msg::Marker> submapMeshLookup_rgb_; ///< Lookup for submap RGB meshes.
   std::map<uint64_t, Eigen::Matrix4f> submapPoses_; ///< Poses of submaps.
+  
+  // Accumulated occupancy grid storage (similar to mesh storage)
+  // Stores world-frame positions with pose snapshot for loop closure detection
+  struct SubmapOccupancyGrid {
+    Eigen::Array3f origin_W;         ///< Origin in WORLD frame (at extraction time)
+    Eigen::Isometry3f T_WK_snapshot; ///< Submap pose at extraction time
+    float resolution;                ///< Grid resolution
+    uint32_t width;                  ///< Grid width in cells
+    uint32_t height;                 ///< Grid height in cells
+    std::vector<int8_t> data;        ///< Occupancy data (0=free, 100=occupied, -1=unknown)
+  };
+  std::unordered_map<uint64_t, SubmapOccupancyGrid> submapOccupancyGrids_; ///< Stored occupancy grids per submap
+  
+  // Global grid cache for performance (stores merged result)
+  std::vector<int8_t> globalOccupancyGrid_;  ///< Persistent global grid (world frame)
+  Eigen::Vector2f globalGridOrigin_;         ///< Global grid origin in world frame
+  uint32_t globalGridWidth_;                 ///< Global grid width in cells
+  uint32_t globalGridHeight_;                ///< Global grid height in cells
+  
+  // Pose tracking for loop closure detection
+  std::unordered_map<uint64_t, Eigen::Isometry3f> lastMergedPoses_; ///< Track T_WK for each merged submap
+  
+  // Helper to check if pose changed significantly
+  bool poseChanged(const Eigen::Isometry3f& pose1, const Eigen::Isometry3f& pose2, 
+                   float trans_thresh = 0.01f, float rot_thresh = 0.01f) const;
 
   float mesh_cutoff_z_ = std::numeric_limits<float>::max(); ///< z cutoff value for visualisation
 
