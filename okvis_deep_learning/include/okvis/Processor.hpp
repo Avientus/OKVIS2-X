@@ -129,6 +129,9 @@ public:
   /// @brief Set function that handles field slice visualization (blocks version).
   void setFieldSliceCallback(const okvis::fieldCallback &callback);
 
+  /// @brief Set function that handles occupancy grid publishing.
+  void setOccupancyGridCallback(const okvis::fieldCallback &callback);
+
   /// @brief Set function that handles point cloud visulaization
   void setAlignmentPublishCallback(const okvis::alignmentPublishCallback &callback);
 

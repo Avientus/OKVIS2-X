@@ -34,6 +34,7 @@
 #include <geometry_msgs/msg/vector3_stamped.hpp>
 #include <nav_msgs/msg/odometry.hpp>
 #include <nav_msgs/msg/path.hpp>
+#include <nav_msgs/msg/occupancy_grid.hpp>
 #include <visualization_msgs/msg/marker.hpp>
 #include <visualization_msgs/msg/marker_array.hpp>
 #include <sensor_msgs/msg/point_cloud2.hpp>
@@ -170,6 +171,36 @@ class Publisher
                                    const AlignedUnorderedMap<uint64_t, se::Submap<okvis::SupereightMapType>>& seSubmapLookup);
 
   /**
+   * @brief Publish a 2D occupancy grid at a fixed height
+   * @param latest_state Current robot state
+   * @param seSubmapLookup Map of submaps
+   */
+  void publishOccupancyGridAsCallback(const State& latest_state,
+                                      const AlignedUnorderedMap<uint64_t, se::Submap<okvis::SupereightMapType>>& seSubmapLookup);
+
+  /**
+   * @brief Set the height at which to generate the occupancy grid (in world frame)
+   * @param height_z The z-height for the occupancy grid slice
+   */
+  void setOccupancyGridHeight(float height_z) { occupancy_grid_height_ = height_z; }
+
+  /**
+   * @brief Set occupancy grid resolution
+   * @param resolution Grid resolution in meters
+   */
+  void setOccupancyGridResolution(float resolution) { occupancy_grid_resolution_ = resolution; }
+
+  /**
+   * @brief Set occupancy grid dimensions
+   * @param width Grid width in meters
+   * @param height Grid height in meters
+   */
+  void setOccupancyGridSize(float width, float height) { 
+    occupancy_grid_width_ = width; 
+    occupancy_grid_height_dim_ = height; 
+  }
+
+  /**
    * @brief Map-to-frame points visualization callback
    */
   void publishAlignmentPointsAsCallback(const okvis::Time& timestamp, const okvis::kinematics::Transformation& T_WS,
@@ -221,6 +252,8 @@ class Publisher
   okvis::ThreadedPublisher::PublisherHandle<nav_msgs::msg::Path> pubPlannedPath_;
   /// \brief The publisher for the slice.
   okvis::ThreadedPublisher::PublisherHandle<visualization_msgs::msg::Marker> slice_pub_;
+  /// \brief The publisher for the occupancy grid.
+  okvis::ThreadedPublisher::PublisherHandle<nav_msgs::msg::OccupancyGrid> pubOccupancyGrid_;
 
   /// \brief Image publishers.
   std::map<std::string, okvis::ThreadedPublisher::PublisherHandle<sensor_msgs::msg::Image>> pubImages_; ///< Image publisher map.
@@ -252,6 +285,19 @@ class Publisher
   std::map<uint64_t, Eigen::Matrix4f> submapPoses_; ///< Poses of submaps.
 
   float mesh_cutoff_z_ = std::numeric_limits<float>::max(); ///< z cutoff value for visualisation
+
+  // Occupancy grid parameters
+  float occupancy_grid_height_ = 0.0f; ///< Height at which to slice the occupancy grid
+  float occupancy_grid_resolution_ = 0.05f; ///< Resolution of the occupancy grid in meters
+  float occupancy_grid_width_ = 20.0f; ///< Width of the occupancy grid in meters
+  float occupancy_grid_height_dim_ = 20.0f; ///< Height (y-dimension) of the occupancy grid in meters
+  
+  // Occupancy grid caching for efficiency
+  struct SubmapBounds {
+    Eigen::Array3f min;
+    Eigen::Array3f max;
+  };
+  std::unordered_map<uint64_t, SubmapBounds> submapBoundsCache_; ///< Cached AABB for each submap
 };
 
 }

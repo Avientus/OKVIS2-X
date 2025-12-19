@@ -406,6 +406,12 @@ namespace okvis {
         void setFieldSliceCallback(const fieldCallback &fieldCallback) { fieldCallback_ = fieldCallback; }
 
         /**
+         * @brief Set callback for publishing occupancy grid
+         * @param[in] occupancyGridCallback the occupancy grid callback function
+        */
+        void setOccupancyGridCallback(const fieldCallback &occupancyGridCallback) { occupancyGridCallback_ = occupancyGridCallback; }
+
+        /**
          * @brief Function that sets the trajectory anchoring callback. When a path is planned, the trajectory is then anchored with the callback function
          * @param[in] trajCallback the trajectory anchoring callback function
         */
@@ -730,6 +736,7 @@ namespace okvis {
         // callbacks
         submapCallback submapCallback_; // to visualize in Publisher
         fieldCallback fieldCallback_; // to visualize in Publisher
+        fieldCallback occupancyGridCallback_; // to publish occupancy grid
         trajectoryAnchoringCallback trajectoryAnchoringCallback_;
         anchoredTrajectoryUpdateCallback anchoredTrajectoryUpdateCallback_;
         alignmentPublishCallback alignmentPublishCallback_;

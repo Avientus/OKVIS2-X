@@ -27,6 +27,13 @@ general:
   # Network depth settings
   use_uncertainty: true
 
+  # Occupancy grid settings
+  occupancy_grid_enable: true
+  occupancy_grid_resolution: 0.05  # Grid cell size in meters
+  occupancy_grid_width: 10.0       # Grid width in meters
+  occupancy_grid_height: 10.0      # Grid height in meters
+  occupancy_grid_slice_height: 1.0 # Height at which to slice (world frame z-coordinate)
+
 map:
   dim:            [25.6, 25.6, 25.6]
   res:            0.025

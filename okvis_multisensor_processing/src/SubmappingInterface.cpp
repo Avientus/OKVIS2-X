@@ -923,6 +923,18 @@ namespace okvis {
           if (fieldCallback_) {
             fieldCallback_(current_state, seSubmapLookup_);
           }
+
+          DLOG(INFO) << "Checking occupancy grid callback: " 
+                     << (occupancyGridCallback_ ? "SET" : "NOT SET") 
+                     << ", seSubmapLookup size: " << seSubmapLookup_.size();
+          
+          if (occupancyGridCallback_) {
+            LOG(INFO) << "Calling occupancy grid callback with " << seSubmapLookup_.size() << " submaps";
+            occupancyGridCallback_(current_state, seSubmapLookup_);
+            LOG(INFO) << "Occupancy grid callback completed";
+          } else {
+            LOG(WARNING) << "Occupancy grid callback is NOT SET!";
+          }
         
           if(create_new_submap && previousSubmapId_ != UNINITIALIZED_ID){
 

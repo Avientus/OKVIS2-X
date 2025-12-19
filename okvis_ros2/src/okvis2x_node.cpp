@@ -285,6 +285,25 @@ int main(int argc, char **argv) {
         std::placeholders::_1, std::placeholders::_2)
       );
 
+      // Set occupancy grid callback
+      if (submapConfig.occupancyGridEnable) {
+        LOG(INFO) << "Setting up occupancy grid callback...";
+        LOG(INFO) << "  Resolution: " << submapConfig.occupancyGridResolution << "m";
+        LOG(INFO) << "  Size: " << submapConfig.occupancyGridWidth << "m x " << submapConfig.occupancyGridHeight << "m";
+        LOG(INFO) << "  Slice height: " << submapConfig.occupancyGridSliceHeight << "m";
+        
+        publisher.setOccupancyGridHeight(submapConfig.occupancyGridSliceHeight);
+        publisher.setOccupancyGridResolution(submapConfig.occupancyGridResolution);
+        publisher.setOccupancyGridSize(submapConfig.occupancyGridWidth, submapConfig.occupancyGridHeight);
+        seInterface->setOccupancyGridCallback(
+          std::bind(&okvis::Publisher::publishOccupancyGridAsCallback, &publisher, 
+                    std::placeholders::_1, std::placeholders::_2)
+        );
+        LOG(INFO) << "Occupancy grid callback registered successfully";
+      } else {
+        LOG(INFO) << "Occupancy grid publishing is DISABLED in config";
+      }
+
       seInterface->setAlignCallback(std::bind(&okvis::ThreadedSlam::addSubmapAlignmentConstraints, &estimator,
                                     std::placeholders::_1, std::placeholders::_2, std::placeholders::_3,
                                     std::placeholders::_4, std::placeholders::_5, std::placeholders::_6));
