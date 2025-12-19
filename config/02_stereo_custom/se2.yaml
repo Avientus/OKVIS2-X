@@ -15,21 +15,21 @@ general:
   submap_kf_threshold: 20
   submap_overlap_ratio: 0.1
   submap_min_frames: 40
-  near_plane: 0.01
-  far_plane: 10000.0
+  near_plane: 0.4
+  far_plane: 4.0
 
   # Alignment settings
   use_map_to_map_factors: true
   use_map_to_live_factors: true
   n_factors_per_state: 200 # number of points per depth images
-  sensor_error: 10.0 # 1-sigma for obsv. noise [m] - increased for testing
+  sensor_error: 0.4 # 1-sigma for obsv. noise [m]
 
   # Network depth settings
-  use_uncertainty: false
+  use_uncertainty: true
 
 map:
-  dim:            [256.0, 256.0, 256.0]  # increased for testing with extreme depth values
-  res:            0.1  # coarser resolution for faster testing
+  dim:            [25.6, 25.6, 25.6]
+  res:            0.025
 
 data:
   # occupancy data
@@ -45,5 +45,5 @@ data:
   tau_max_factor:          12
   k_tau:                   0.02
   sigma_min_factor:        1      # minimum/maximum uncertainty := 3 x sigma_min_factor/sigma_max_factor * voxel_dim
-  sigma_max_factor:        1000   # minimum/maximum uncertainty := 3 x sigma_min_factor/sigma_max_factor * voxel_dim - increased for testing
+  sigma_max_factor:        20     # minimum/maximum uncertainty := 3 x sigma_min_factor/sigma_max_factor * voxel_dim
   k_sigma:                 0.05
