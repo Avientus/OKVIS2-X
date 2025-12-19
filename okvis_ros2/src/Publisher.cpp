@@ -752,9 +752,12 @@ void Publisher::extractSubmapOccupancyGrid(
       const float world_z = occupancy_grid_height_;
       const Eigen::Vector3f point_W(world_x, world_y, world_z);
       
-      // Query voxel (map handles world to voxel conversion internally)
+      // Transform from world to submap's local frame before querying
+      const Eigen::Vector3f point_K = T_WK.inverse() * point_W;
+      
+      // Query voxel in submap's local frame
       Eigen::Vector3i voxel_coord;
-      submap.map->pointToVoxel<se::Safe::Off>(point_W, voxel_coord);
+      submap.map->pointToVoxel<se::Safe::Off>(point_K, voxel_coord);
       auto data = se::visitor::getData(submap.map->getOctree(), voxel_coord);
       
       if (!se::is_valid(data)) {
@@ -802,7 +805,8 @@ void Publisher::extractSubmapOccupancyGrid(
         near_surface_cells++;
       }
       
-      const size_t index = grid_y * width + grid_x;
+      // ROS OccupancyGrid convention: index = x + y * width
+      const size_t index = grid_x + grid_y * width;
       grid.data[index] = grid_value;
     }
   }
@@ -976,6 +980,10 @@ void Publisher::publishOccupancyGridAsCallback(
   grid_msg->info.origin.position.y = t_WB.y() - occupancy_grid_height_dim_ / 2.0;
   grid_msg->info.origin.position.z = occupancy_grid_height_;
   grid_msg->info.origin.orientation.w = 1.0;
+  
+  LOG(INFO) << "Robot position (world): [" << t_WB.x() << ", " << t_WB.y() << ", " << t_WB.z() << "]";
+  LOG(INFO) << "Slice height (world): " << occupancy_grid_height_;
+  LOG(INFO) << "Height difference (robot Z - slice): " << (t_WB.z() - occupancy_grid_height_) << "m";
 
   // Initialize grid data to unknown
   grid_msg->data.resize(grid_msg->info.width * grid_msg->info.height, -1);
@@ -989,6 +997,17 @@ void Publisher::publishOccupancyGridAsCallback(
   size_t occupied_count = 0;
   size_t free_count = 0;
   
+  // DEBUG: Log grid setup details
+  LOG(INFO) << "=== GRID SETUP DEBUG ===";
+  LOG(INFO) << "Grid dimensions: " << grid_msg->info.width << " x " << grid_msg->info.height << " cells";
+  LOG(INFO) << "Grid resolution: " << grid_msg->info.resolution << " m/cell";
+  LOG(INFO) << "Grid origin (world): [" << grid_msg->info.origin.position.x << ", " 
+            << grid_msg->info.origin.position.y << ", " << grid_msg->info.origin.position.z << "]";
+  LOG(INFO) << "Grid world bounds: X=[" << grid_msg->info.origin.position.x << " to " 
+            << (grid_msg->info.origin.position.x + grid_msg->info.width * grid_msg->info.resolution) << "]";
+  LOG(INFO) << "                   Y=[" << grid_msg->info.origin.position.y << " to " 
+            << (grid_msg->info.origin.position.y + grid_msg->info.height * grid_msg->info.resolution) << "]";
+  
   // Query each active submap directly (no caching)
   for (const auto& [submap_id, submap] : seSubmapLookup) {
     if (!submap.map) {
@@ -997,7 +1016,17 @@ void Publisher::publishOccupancyGridAsCallback(
     
     LOG(INFO) << "Querying submap " << submap_id << " at current pose";
     
+    // DEBUG: Log submap transform
+    const Eigen::Isometry3f& T_WK = submap.T_WK;
+    Eigen::Vector3f submap_origin = T_WK.translation();
+    Eigen::Matrix3f submap_rotation = T_WK.rotation();
+    LOG(INFO) << "  Submap origin (world): [" << submap_origin.x() << ", " 
+              << submap_origin.y() << ", " << submap_origin.z() << "]";
+    LOG(INFO) << "  Submap rotation (first row): [" << submap_rotation(0,0) << ", " 
+              << submap_rotation(0,1) << ", " << submap_rotation(0,2) << "]";
+    
     // Query each cell in the output grid
+    size_t valid_in_submap = 0;
     for (uint32_t grid_y = 0; grid_y < grid_msg->info.height; ++grid_y) {
       for (uint32_t grid_x = 0; grid_x < grid_msg->info.width; ++grid_x) {
         total_queries++;
@@ -1005,12 +1034,38 @@ void Publisher::publishOccupancyGridAsCallback(
         // World position of this grid cell
         const float world_x = grid_msg->info.origin.position.x + (grid_x + 0.5f) * grid_msg->info.resolution;
         const float world_y = grid_msg->info.origin.position.y + (grid_y + 0.5f) * grid_msg->info.resolution;
-        const float world_z = occupancy_grid_height_;
+        // Use robot-relative height if slice_height is very small (< 0.01), otherwise use absolute
+        const float world_z = (std::abs(occupancy_grid_height_) < 0.01f) ? 
+                              static_cast<float>(t_WB.z()) : occupancy_grid_height_;
         const Eigen::Vector3f point_W(world_x, world_y, world_z);
         
-        // Query voxel at this world position
+        // DEBUG: Log first few valid queries
+        static int debug_count = 0;
+        const bool should_debug = (debug_count < 5);
+        
+        // CRITICAL FIX: Transform from world W to map's internal frame M
+        // The map uses T_MW internally, but the submap is at pose T_WK
+        // We need to: W -> K (submap frame) -> M (map's internal frame)
+        const Eigen::Isometry3f& T_WK = submap.T_WK;
+        const Eigen::Isometry3f T_KW = T_WK.inverse();
+        const Eigen::Vector3f point_K = T_KW * point_W;  // Transform to submap's anchor frame
+        
+        // Now use the map's internal pointToVoxel which expects points in its own frame
+        // The map's T_MW handles the centering offset
         Eigen::Vector3i voxel_coord;
-        if (!submap.map->pointToVoxel<se::Safe::On>(point_W, voxel_coord)) {
+        bool in_bounds = submap.map->pointToVoxel<se::Safe::On>(point_K, voxel_coord);
+        
+        // DEBUG: Log first out-of-bounds check
+        static int oob_logged = 0;
+        if (!in_bounds && oob_logged < 3) {
+          LOG(INFO) << "    [OOB " << oob_logged << "] point_W=[" << point_W.x() << "," 
+                    << point_W.y() << "," << point_W.z() << "] -> point_K=[" 
+                    << point_K.x() << "," << point_K.y() << "," << point_K.z() 
+                    << "] is outside submap bounds";
+          oob_logged++;
+        }
+        
+        if (!in_bounds) {
           continue; // Outside this submap's bounds
         }
         
@@ -1020,7 +1075,17 @@ void Publisher::publishOccupancyGridAsCallback(
         }
         
         valid_queries++;
+        valid_in_submap++;
         se::field_t occ = se::get_field(data);
+        
+        // DEBUG: Log first few valid queries
+        if (should_debug && debug_count < 5) {
+          LOG(INFO) << "    [Sample " << debug_count << "] grid_cell=[" << grid_x << "," << grid_y 
+                    << "] -> world=[" << world_x << "," << world_y << "," << world_z 
+                    << "] -> local_K=[" << point_K.x() << "," << point_K.y() << "," << point_K.z()
+                    << "] -> voxel=[" << voxel_coord.x() << "," << voxel_coord.y() << "," << voxel_coord.z()
+                    << "] -> occ=" << occ;
+        }
         
         // Convert TSDF to occupancy value
         int8_t grid_value = -1;
@@ -1042,20 +1107,41 @@ void Publisher::publishOccupancyGridAsCallback(
         }
         
         // Write to output grid (only if better than current value)
-        const size_t grid_index = grid_y * grid_msg->info.width + grid_x;
+        // ROS OccupancyGrid uses: index = x + y * width (NOT y * width + x!)
+        const size_t grid_index = grid_x + grid_y * grid_msg->info.width;
         if (grid_value != -1) {
           // If cell is unknown or this is more confident, update it
           if (grid_msg->data[grid_index] == -1 ||
               (grid_value > 50 && grid_msg->data[grid_index] < grid_value) ||  // More occupied
               (grid_value < 50 && grid_msg->data[grid_index] > grid_value)) {  // More free
             grid_msg->data[grid_index] = grid_value;
+            
+            // DEBUG: Log write
+            if (should_debug) {
+              LOG(INFO) << "      -> Writing value=" << static_cast<int>(grid_value) 
+                        << " to grid_index=" << grid_index 
+                        << " (grid_x=" << grid_x << ", grid_y=" << grid_y << ")";
+              debug_count++;
+            }
           }
         }
       }
     }
+    
+    LOG(INFO) << "  Submap " << submap_id << " contributed " << valid_in_submap << " valid cells";
   }
   
   timer_query.stop();
+  
+  // DEBUG: Analyze robot orientation vs map
+  Eigen::Quaterniond q_WS = latest_state.T_WS.q();
+  Eigen::Matrix3d R_WS = q_WS.toRotationMatrix();
+  Eigen::Vector3d robot_forward = R_WS.col(0); // X-axis = forward direction
+  LOG(INFO) << "=== ROBOT ORIENTATION DEBUG ===";
+  LOG(INFO) << "Robot forward direction (world frame): [" 
+            << robot_forward.x() << ", " << robot_forward.y() << ", " << robot_forward.z() << "]";
+  LOG(INFO) << "Robot facing angle (degrees from +X): " 
+            << (std::atan2(robot_forward.y(), robot_forward.x()) * 180.0 / 3.14159265359);
   
   LOG(INFO) << "OccupancyGrid Query Stats:";
   LOG(INFO) << "  Total queries: " << total_queries;
