@@ -26,6 +26,7 @@
 #include <pcl_conversions/pcl_conversions.h>
 
 #include <okvis/FrameTypedefs.hpp>
+#include <okvis/timing/Timer.hpp>
 
 /// \brief okvis Main namespace of this package.
 namespace okvis {
@@ -59,6 +60,7 @@ void Publisher::setupNode(std::shared_ptr<rclcpp::Node> node)
   pubSubmapMesh_ =          threadedPublisher_->registerPublisher<visualization_msgs::msg::MarkerArray>("okvis_submap_mesh");
   pubPointsMatched_ =       threadedPublisher_->registerPublisher<sensor_msgs::msg::PointCloud2>("okvis_points_matched");
   pubPointsAlignment_ =     threadedPublisher_->registerPublisher<sensor_msgs::msg::PointCloud2>("okvis_points_alignment");
+  pubOccupancyGrid_ =       threadedPublisher_->registerPublisher<nav_msgs::msg::OccupancyGrid>("okvis_occupancy_grid");
       
   // get the mesh, if there is one
   // where to get the mesh from
@@ -655,6 +657,181 @@ void Publisher::publishFieldSliceAsCallback(
     }
   }
   slice_pub_.publish(msg);
+}
+
+void Publisher::publishOccupancyGridAsCallback(
+    const State& latest_state,
+    const AlignedUnorderedMap<uint64_t, se::Submap<okvis::SupereightMapType>>& seSubmapLookup)
+{
+  LOG(INFO) << "========== publishOccupancyGridAsCallback CALLED with " 
+            << seSubmapLookup.size() << " submaps ==========";
+  
+  okvis::TimerSwitchable timer_total("OccupancyGrid: Total");
+  
+  if (seSubmapLookup.empty()) {
+    LOG(WARNING) << "Occupancy grid: seSubmapLookup is EMPTY!";
+    return;
+  }
+
+  // Create the occupancy grid message
+  okvis::TimerSwitchable timer_setup("OccupancyGrid: Setup");
+  auto grid_msg = std::make_shared<nav_msgs::msg::OccupancyGrid>();
+  grid_msg->header.stamp.sec = latest_state.timestamp.sec;
+  grid_msg->header.stamp.nanosec = latest_state.timestamp.nsec;
+  grid_msg->header.frame_id = "world";
+
+  // Set grid parameters
+  grid_msg->info.resolution = occupancy_grid_resolution_;
+  grid_msg->info.width = static_cast<uint32_t>(occupancy_grid_width_ / occupancy_grid_resolution_);
+  grid_msg->info.height = static_cast<uint32_t>(occupancy_grid_height_dim_ / occupancy_grid_resolution_);
+
+  // Center the grid on the robot's current position
+  const Eigen::Vector3d t_WB = (latest_state.T_WS * T_SB_).r();
+  grid_msg->info.origin.position.x = t_WB.x() - occupancy_grid_width_ / 2.0;
+  grid_msg->info.origin.position.y = t_WB.y() - occupancy_grid_height_dim_ / 2.0;
+  grid_msg->info.origin.position.z = occupancy_grid_height_;
+  grid_msg->info.origin.orientation.w = 1.0;
+
+  // Initialize grid data
+  grid_msg->data.resize(grid_msg->info.width * grid_msg->info.height, -1); // -1 = unknown
+  timer_setup.stop();
+
+  // Build/update bounds cache and determine which submaps might intersect the grid
+  okvis::TimerSwitchable timer_culling("OccupancyGrid: Spatial Culling");
+  const Eigen::Vector3f grid_min(grid_msg->info.origin.position.x, 
+                                   grid_msg->info.origin.position.y,
+                                   occupancy_grid_height_ - 1.0f); // Allow some z tolerance
+  const Eigen::Vector3f grid_max(grid_msg->info.origin.position.x + occupancy_grid_width_,
+                                   grid_msg->info.origin.position.y + occupancy_grid_height_dim_,
+                                   occupancy_grid_height_ + 1.0f);
+
+  std::vector<std::pair<uint64_t, const se::Submap<okvis::SupereightMapType>*>> relevant_submaps;
+  relevant_submaps.reserve(seSubmapLookup.size());
+
+  size_t total_submaps = seSubmapLookup.size();
+  size_t culled_submaps = 0;
+
+  for (const auto& submap_pair : seSubmapLookup) {
+    const uint64_t submap_id = submap_pair.first;
+    const auto& submap = submap_pair.second;
+
+    // Update bounds cache if needed
+    if (submapBoundsCache_.find(submap_id) == submapBoundsCache_.end()) {
+      SubmapBounds bounds;
+      bounds.min = submap.map->aabb().min();
+      bounds.max = submap.map->aabb().max();
+      submapBoundsCache_[submap_id] = bounds;
+    }
+
+    const auto& bounds = submapBoundsCache_[submap_id];
+
+    // Check if submap AABB intersects with grid region
+    if ((bounds.max.array() < grid_min.array()).any() || 
+        (bounds.min.array() > grid_max.array()).any()) {
+      culled_submaps++;
+      continue; // No intersection, skip this submap entirely
+    }
+
+    relevant_submaps.emplace_back(submap_id, &submap);
+  }
+  timer_culling.stop();
+
+  DLOG(INFO) << "OccupancyGrid: Culled " << culled_submaps << "/" << total_submaps 
+             << " submaps (" << relevant_submaps.size() << " relevant)";
+
+  // Early exit if no relevant submaps
+  if (relevant_submaps.empty()) {
+    pubOccupancyGrid_.publish(grid_msg);
+    return;
+  }
+
+  // Fill the occupancy grid by querying only relevant submaps
+  okvis::TimerSwitchable timer_query("OccupancyGrid: Voxel Query");
+  size_t total_cells = grid_msg->info.width * grid_msg->info.height;
+  size_t queried_cells = 0;
+  size_t early_exits = 0;
+
+  for (uint32_t grid_y = 0; grid_y < grid_msg->info.height; ++grid_y) {
+    for (uint32_t grid_x = 0; grid_x < grid_msg->info.width; ++grid_x) {
+      // Convert grid coordinates to world coordinates
+      const float world_x = grid_msg->info.origin.position.x + (grid_x + 0.5f) * occupancy_grid_resolution_;
+      const float world_y = grid_msg->info.origin.position.y + (grid_y + 0.5f) * occupancy_grid_resolution_;
+      const float world_z = occupancy_grid_height_;
+      const Eigen::Vector3f point_W(world_x, world_y, world_z);
+
+      // Query relevant submaps and fuse occupancy values
+      se::field_t best_occ = 0.0f;
+      bool found_valid = false;
+      float max_confidence = 0.0f;
+
+      for (const auto& [submap_id, submap_ptr] : relevant_submaps) {
+        const auto& bounds = submapBoundsCache_[submap_id];
+        
+        // Quick bounds check using cached AABB
+        if ((point_W.array() < bounds.min.array()).any() || 
+            (point_W.array() > bounds.max.array()).any()) {
+          continue; // Point not in this submap
+        }
+
+        queried_cells++;
+
+        // Query this submap
+        Eigen::Vector3i voxel_coord;
+        submap_ptr->map->pointToVoxel<se::Safe::Off>(point_W, voxel_coord);
+        se::field_t occ = se::get_field(se::visitor::getData(submap_ptr->map->getOctree(), voxel_coord));
+
+        // Use the observation with highest confidence (furthest from 0)
+        float confidence = std::abs(occ);
+        if (confidence > max_confidence) {
+          max_confidence = confidence;
+          best_occ = occ;
+          found_valid = true;
+          
+          // Early exit if we have very high confidence
+          if (confidence > 50.0f) {
+            early_exits++;
+            break;
+          }
+        }
+      }
+
+      // Convert to ROS occupancy grid format
+      int8_t grid_value = -1; // Default: unknown
+      if (found_valid) {
+        // Supereight2: positive = occupied, negative = free, around 0 = unknown
+        // ROS: 0-100 (0=free, 100=occupied), -1=unknown
+        if (best_occ > 15.0f) {
+          // Occupied
+          grid_value = 100;
+        } else if (best_occ < -15.0f) {
+          // Free
+          grid_value = 0;
+        } else {
+          // Unknown/uncertain
+          grid_value = -1;
+        }
+      }
+
+      // Set grid cell (row-major order)
+      const size_t index = grid_y * grid_msg->info.width + grid_x;
+      grid_msg->data[index] = grid_value;
+    }
+  }
+  timer_query.stop();
+
+  DLOG(INFO) << "OccupancyGrid: Queried " << queried_cells << " submap cells "
+             << "(avg " << (queried_cells / std::max(1UL, total_cells)) << " per grid cell), "
+             << "early exits: " << early_exits;
+
+  // Publish the occupancy grid
+  okvis::TimerSwitchable timer_publish("OccupancyGrid: Publish");
+  LOG(INFO) << "Publishing occupancy grid: " << grid_msg->info.width << "x" << grid_msg->info.height 
+            << " cells, resolution: " << grid_msg->info.resolution << "m";
+  pubOccupancyGrid_.publish(grid_msg);
+  timer_publish.stop();
+
+  timer_total.stop();
+  LOG(INFO) << "========== publishOccupancyGridAsCallback COMPLETED ==========";
 }
 
 void Publisher::publishAlignmentPointsAsCallback(const okvis::Time& timestamp, const okvis::kinematics::Transformation& T_WS,

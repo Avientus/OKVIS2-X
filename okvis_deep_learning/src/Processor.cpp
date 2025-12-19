@@ -111,6 +111,10 @@ void Processor::setFieldSliceCallback(const okvis::fieldCallback &callback) {
   se_interface_.setFieldSliceCallback(callback);
 }
 
+void Processor::setOccupancyGridCallback(const okvis::fieldCallback &callback) {
+  se_interface_.setOccupancyGridCallback(callback);
+}
+
 void Processor::setAlignmentPublishCallback(const okvis::alignmentPublishCallback &callback) {
   slam_.setAlignmentPublishCallback(callback);
   se_interface_.setAlignmentPublishCallback(callback);
