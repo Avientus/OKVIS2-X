@@ -61,6 +61,15 @@ void Publisher::setupNode(std::shared_ptr<rclcpp::Node> node)
   pubPointsMatched_ =       threadedPublisher_->registerPublisher<sensor_msgs::msg::PointCloud2>("okvis_points_matched");
   pubPointsAlignment_ =     threadedPublisher_->registerPublisher<sensor_msgs::msg::PointCloud2>("okvis_points_alignment");
   pubOccupancyGrid_ =       threadedPublisher_->registerPublisher<nav_msgs::msg::OccupancyGrid>("okvis_occupancy_grid");
+  pubSubmapBounds_ =        threadedPublisher_->registerPublisher<visualization_msgs::msg::MarkerArray>("okvis_submap_bounds");
+  
+  // Initialize global occupancy grid (100m x 100m centered at world origin)
+  globalGridWidth_ = 2000;   // 100m / 0.05m
+  globalGridHeight_ = 2000;
+  globalGridOrigin_ = Eigen::Vector2f(-50.0f, -50.0f);  // Centered at (0,0)
+  globalOccupancyGrid_.resize(globalGridWidth_ * globalGridHeight_, -1);  // All unknown
+  LOG(INFO) << "Initialized global occupancy grid: " << globalGridWidth_ << "x" << globalGridHeight_ 
+            << " @ 0.05m resolution, origin: [" << globalGridOrigin_.x() << "," << globalGridOrigin_.y() << "]";
       
   // get the mesh, if there is one
   // where to get the mesh from
@@ -659,20 +668,296 @@ void Publisher::publishFieldSliceAsCallback(
   slice_pub_.publish(msg);
 }
 
+bool Publisher::poseChanged(const Eigen::Isometry3f& pose1, 
+                             const Eigen::Isometry3f& pose2,
+                             float trans_thresh,
+                             float rot_thresh) const
+{
+  // Check translation change
+  Eigen::Vector3f trans_diff = pose1.translation() - pose2.translation();
+  if (trans_diff.norm() > trans_thresh) {
+    return true;
+  }
+  
+  // Check rotation change (using angle-axis)
+  Eigen::Matrix3f R_diff = pose1.rotation() * pose2.rotation().transpose();
+  Eigen::AngleAxisf angle_axis(R_diff);
+  if (std::abs(angle_axis.angle()) > rot_thresh) {
+    return true;
+  }
+  
+  return false;
+}
+
+void Publisher::extractSubmapOccupancyGrid(
+    uint64_t submap_id,
+    const se::Submap<okvis::SupereightMapType>& submap)
+{
+  LOG(INFO) << "Extracting occupancy grid from submap " << submap_id;
+  
+  // IMPORTANT: aabb() returns bounds in MAP FRAME K (not world frame!)
+  const Eigen::Array3f aabb_min_K = submap.map->aabb().min();
+  const Eigen::Array3f aabb_max_K = submap.map->aabb().max();
+  
+  // Get submap pose for transforming K -> W
+  const Eigen::Isometry3f& T_WK = submap.T_WK;
+  
+  // Transform AABB bounds to world frame for grid sizing
+  Eigen::Vector3f aabb_min_W_vec = T_WK * aabb_min_K.matrix();
+  Eigen::Vector3f aabb_max_W_vec = T_WK * aabb_max_K.matrix();
+  
+  // Since rotation can change which corner is min/max, recalculate
+  Eigen::Array3f aabb_min_W = aabb_min_W_vec.array().min(aabb_max_W_vec.array());
+  Eigen::Array3f aabb_max_W = aabb_min_W_vec.array().max(aabb_max_W_vec.array());
+  
+  const Eigen::Array3f size = aabb_max_W - aabb_min_W;
+  const float resolution = occupancy_grid_resolution_;
+  const uint32_t width = static_cast<uint32_t>(std::ceil(size.x() / resolution));
+  const uint32_t height = static_cast<uint32_t>(std::ceil(size.y() / resolution));
+  
+  LOG(INFO) << "  Submap bounds (map frame K): [" << aabb_min_K.x() << "," << aabb_min_K.y() << "," << aabb_min_K.z() 
+            << "] to [" << aabb_max_K.x() << "," << aabb_max_K.y() << "," << aabb_max_K.z() << "]";
+  LOG(INFO) << "  Submap bounds (world frame W): [" << aabb_min_W.x() << "," << aabb_min_W.y() << "," << aabb_min_W.z() 
+            << "] to [" << aabb_max_W.x() << "," << aabb_max_W.y() << "," << aabb_max_W.z() << "]";
+  LOG(INFO) << "  Grid size: " << width << "x" << height << " @ " << resolution << "m resolution";
+  
+  // Store grid with world frame origin and pose snapshot for loop closure
+  SubmapOccupancyGrid grid;
+  grid.origin_W = aabb_min_W;          // World frame origin at extraction time
+  grid.T_WK_snapshot = T_WK;            // Save current pose for loop closure detection
+  grid.resolution = resolution;
+  grid.width = width;
+  grid.height = height;
+  grid.data.resize(width * height, -1); // Initialize to unknown
+  
+  size_t valid_cells = 0;
+  size_t occupied_cells = 0;
+  size_t free_cells = 0;
+  size_t unknown_cells = 0;
+  size_t near_surface_cells = 0; // Between -1 and +1
+  
+  // Track occupancy value distribution
+  float min_occ = std::numeric_limits<float>::max();
+  float max_occ = std::numeric_limits<float>::lowest();
+  std::vector<float> sample_values; // Store first 20 valid values for inspection
+  
+  // Extract occupancy data at the configured height
+  // Query using WORLD frame coordinates (pointToVoxel expects world frame)
+  size_t total_queries = 0;
+  for (uint32_t grid_y = 0; grid_y < height; ++grid_y) {
+    for (uint32_t grid_x = 0; grid_x < width; ++grid_x) {
+      total_queries++;
+      const float world_x = aabb_min_W.x() + (grid_x + 0.5f) * resolution;
+      const float world_y = aabb_min_W.y() + (grid_y + 0.5f) * resolution;
+      const float world_z = occupancy_grid_height_;
+      const Eigen::Vector3f point_W(world_x, world_y, world_z);
+      
+      // Query voxel (map handles world to voxel conversion internally)
+      Eigen::Vector3i voxel_coord;
+      submap.map->pointToVoxel<se::Safe::Off>(point_W, voxel_coord);
+      auto data = se::visitor::getData(submap.map->getOctree(), voxel_coord);
+      
+      if (!se::is_valid(data)) {
+        unknown_cells++;
+        continue; // Leave as unknown
+      }
+      
+      valid_cells++;
+      se::field_t occ = se::get_field(data);
+      
+      // Track value range
+      min_occ = std::min(min_occ, occ);
+      max_occ = std::max(max_occ, occ);
+      if (sample_values.size() < 20) {
+        sample_values.push_back(occ);
+      }
+      
+      // Convert to ROS format
+      // For TSDF: negative = free space, near zero = surface (occupied), positive = behind surface
+      int8_t grid_value = -1;
+      
+      // Surface/Occupied: values close to zero (±0.5 voxels from surface)
+      if (std::abs(occ) < 0.5f) {
+        // Very close to surface - definitely occupied
+        grid_value = 100; // Fully occupied
+        occupied_cells++;
+      } else if (occ > 0.5f) {
+        // Positive values behind surface - treat as occupied
+        // Scale from 0.5 to 2.0 -> 75 to 100
+        float normalized = std::min((occ - 0.5f) / 1.5f, 1.0f);
+        grid_value = static_cast<int8_t>(75 + normalized * 25);
+        occupied_cells++;
+      } else if (occ < -3.0f) {
+        // Very negative = definitely free space
+        grid_value = 0; // Fully free
+        free_cells++;
+      } else if (occ < -0.5f) {
+        // Moderately negative = likely free
+        // Scale from -0.5 to -3.0 -> 25 to 0
+        float normalized = std::max((occ + 0.5f) / -2.5f, 0.0f);
+        grid_value = static_cast<int8_t>(25 - normalized * 25);
+        free_cells++;
+      } else {
+        // Fallback for edge cases
+        near_surface_cells++;
+      }
+      
+      const size_t index = grid_y * width + grid_x;
+      grid.data[index] = grid_value;
+    }
+  }
+  
+  LOG(INFO) << "  Extraction stats:";
+  LOG(INFO) << "    Total queries: " << total_queries;
+  LOG(INFO) << "    Valid cells: " << valid_cells << " (" 
+            << (100.0f * valid_cells / total_queries) << "%)";
+  LOG(INFO) << "    Unknown (invalid): " << unknown_cells << " (" 
+            << (100.0f * unknown_cells / total_queries) << "%)";
+  LOG(INFO) << "    Occupied (near 0 or positive): " << occupied_cells << " (" 
+            << (100.0f * occupied_cells / total_queries) << "%)";
+  LOG(INFO) << "    Free (negative < -0.5): " << free_cells << " (" 
+            << (100.0f * free_cells / total_queries) << "%)";
+  LOG(INFO) << "    Unclassified: " << near_surface_cells << " (" 
+            << (100.0f * near_surface_cells / total_queries) << "%)";
+  
+  if (valid_cells > 0) {
+    LOG(INFO) << "    Occupancy value range: [" << min_occ << ", " << max_occ << "]";
+    LOG(INFO) << "    Sample values: ";
+    std::stringstream ss;
+    for (size_t i = 0; i < sample_values.size(); ++i) {
+      ss << sample_values[i];
+      if (i < sample_values.size() - 1) ss << ", ";
+    }
+    LOG(INFO) << "      " << ss.str();
+  }
+  
+  // Store the grid (positions will be transformed using T_WK during merge)
+  submapOccupancyGrids_[submap_id] = std::move(grid);
+}
+
 void Publisher::publishOccupancyGridAsCallback(
     const State& latest_state,
     const AlignedUnorderedMap<uint64_t, se::Submap<okvis::SupereightMapType>>& seSubmapLookup)
 {
   LOG(INFO) << "========== publishOccupancyGridAsCallback CALLED with " 
-            << seSubmapLookup.size() << " submaps ==========";
+            << seSubmapLookup.size() << " active submaps, " 
+            << submapOccupancyGrids_.size() << " stored grids ==========";
   
   okvis::TimerSwitchable timer_total("OccupancyGrid: Total");
   
-  if (seSubmapLookup.empty()) {
-    LOG(WARNING) << "Occupancy grid: seSubmapLookup is EMPTY!";
-    return;
+  // VISUALIZATION: Publish submap boundaries for debugging
+  LOG(INFO) << "Creating submap boundary markers for " << seSubmapLookup.size() << " submaps";
+  auto marker_array_msg = std::make_shared<visualization_msgs::msg::MarkerArray>();
+  int marker_id = 0;
+  
+  // Define colors for different submaps (cycling through rainbow)
+  auto getColor = [](int id) -> std::array<float, 4> {
+    float hue = (id * 137.5f) / 360.0f; // Golden angle for good color distribution
+    hue = hue - std::floor(hue); // Wrap to [0, 1]
+    
+    // HSV to RGB conversion (S=1, V=1 for bright colors)
+    float h6 = hue * 6.0f;
+    float x = 1.0f - std::abs(std::fmod(h6, 2.0f) - 1.0f);
+    
+    if (h6 < 1.0f) return {1.0f, x, 0.0f, 0.5f};
+    else if (h6 < 2.0f) return {x, 1.0f, 0.0f, 0.5f};
+    else if (h6 < 3.0f) return {0.0f, 1.0f, x, 0.5f};
+    else if (h6 < 4.0f) return {0.0f, x, 1.0f, 0.5f};
+    else if (h6 < 5.0f) return {x, 0.0f, 1.0f, 0.5f};
+    else return {1.0f, 0.0f, x, 0.5f};
+  };
+  
+  for (const auto& [submap_id, submap] : seSubmapLookup) {
+    if (!submap.map) continue;
+    
+    // Get AABB in map frame K
+    const Eigen::Array3f aabb_min_K = submap.map->aabb().min();
+    const Eigen::Array3f aabb_max_K = submap.map->aabb().max();
+    
+    // Transform to world frame
+    const Eigen::Isometry3f& T_WK = submap.T_WK;
+    Eigen::Vector3f aabb_min_W_vec = T_WK * aabb_min_K.matrix();
+    Eigen::Vector3f aabb_max_W_vec = T_WK * aabb_max_K.matrix();
+    
+    // Recalculate min/max after rotation
+    Eigen::Array3f aabb_min_W = aabb_min_W_vec.array().min(aabb_max_W_vec.array());
+    Eigen::Array3f aabb_max_W = aabb_min_W_vec.array().max(aabb_max_W_vec.array());
+    
+    // Create wireframe cube marker
+    visualization_msgs::msg::Marker marker;
+    marker.header.frame_id = "world";
+    marker.header.stamp.sec = latest_state.timestamp.sec;
+    marker.header.stamp.nanosec = latest_state.timestamp.nsec;
+    marker.ns = "submap_bounds";
+    marker.id = marker_id++;
+    marker.type = visualization_msgs::msg::Marker::LINE_LIST;
+    marker.action = visualization_msgs::msg::Marker::ADD;
+    marker.scale.x = 0.05; // Line width
+    
+    auto color = getColor(submap_id);
+    marker.color.r = color[0];
+    marker.color.g = color[1];
+    marker.color.b = color[2];
+    marker.color.a = color[3];
+    
+    // Create 12 edges of the bounding box
+    auto addEdge = [&](float x1, float y1, float z1, float x2, float y2, float z2) {
+      geometry_msgs::msg::Point p1, p2;
+      p1.x = x1; p1.y = y1; p1.z = z1;
+      p2.x = x2; p2.y = y2; p2.z = z2;
+      marker.points.push_back(p1);
+      marker.points.push_back(p2);
+    };
+    
+    float xmin = aabb_min_W.x(), ymin = aabb_min_W.y(), zmin = aabb_min_W.z();
+    float xmax = aabb_max_W.x(), ymax = aabb_max_W.y(), zmax = aabb_max_W.z();
+    
+    // Bottom face
+    addEdge(xmin, ymin, zmin, xmax, ymin, zmin);
+    addEdge(xmax, ymin, zmin, xmax, ymax, zmin);
+    addEdge(xmax, ymax, zmin, xmin, ymax, zmin);
+    addEdge(xmin, ymax, zmin, xmin, ymin, zmin);
+    
+    // Top face
+    addEdge(xmin, ymin, zmax, xmax, ymin, zmax);
+    addEdge(xmax, ymin, zmax, xmax, ymax, zmax);
+    addEdge(xmax, ymax, zmax, xmin, ymax, zmax);
+    addEdge(xmin, ymax, zmax, xmin, ymin, zmax);
+    
+    // Vertical edges
+    addEdge(xmin, ymin, zmin, xmin, ymin, zmax);
+    addEdge(xmax, ymin, zmin, xmax, ymin, zmax);
+    addEdge(xmax, ymax, zmin, xmax, ymax, zmax);
+    addEdge(xmin, ymax, zmin, xmin, ymax, zmax);
+    
+    marker_array_msg->markers.push_back(marker);
+    
+    // Add text label with submap ID
+    visualization_msgs::msg::Marker text_marker;
+    text_marker.header = marker.header;
+    text_marker.ns = "submap_labels";
+    text_marker.id = marker_id++;
+    text_marker.type = visualization_msgs::msg::Marker::TEXT_VIEW_FACING;
+    text_marker.action = visualization_msgs::msg::Marker::ADD;
+    text_marker.pose.position.x = (xmin + xmax) / 2.0f;
+    text_marker.pose.position.y = (ymin + ymax) / 2.0f;
+    text_marker.pose.position.z = zmax + 0.5f; // Above the box
+    text_marker.scale.z = 0.3; // Text height
+    text_marker.color = marker.color;
+    text_marker.color.a = 1.0; // Opaque text
+    text_marker.text = "Submap " + std::to_string(submap_id);
+    
+    marker_array_msg->markers.push_back(text_marker);
+    
+    LOG(INFO) << "  Submap " << submap_id << " bounds: [" 
+              << xmin << "," << ymin << "," << zmin << "] to ["
+              << xmax << "," << ymax << "," << zmax << "]";
   }
-
+  
+  // Publish visualization
+  LOG(INFO) << "Publishing " << marker_array_msg->markers.size() << " markers to /okvis/okvis_submap_bounds";
+  pubSubmapBounds_.publish(marker_array_msg);
+  
   // Create the occupancy grid message
   okvis::TimerSwitchable timer_setup("OccupancyGrid: Setup");
   auto grid_msg = std::make_shared<nav_msgs::msg::OccupancyGrid>();
@@ -692,144 +977,115 @@ void Publisher::publishOccupancyGridAsCallback(
   grid_msg->info.origin.position.z = occupancy_grid_height_;
   grid_msg->info.origin.orientation.w = 1.0;
 
-  // Initialize grid data
-  grid_msg->data.resize(grid_msg->info.width * grid_msg->info.height, -1); // -1 = unknown
+  // Initialize grid data to unknown
+  grid_msg->data.resize(grid_msg->info.width * grid_msg->info.height, -1);
   timer_setup.stop();
 
-  // Build/update bounds cache and determine which submaps might intersect the grid
-  okvis::TimerSwitchable timer_culling("OccupancyGrid: Spatial Culling");
-  const Eigen::Vector3f grid_min(grid_msg->info.origin.position.x, 
-                                   grid_msg->info.origin.position.y,
-                                   occupancy_grid_height_ - 1.0f); // Allow some z tolerance
-  const Eigen::Vector3f grid_max(grid_msg->info.origin.position.x + occupancy_grid_width_,
-                                   grid_msg->info.origin.position.y + occupancy_grid_height_dim_,
-                                   occupancy_grid_height_ + 1.0f);
-
-  std::vector<std::pair<uint64_t, const se::Submap<okvis::SupereightMapType>*>> relevant_submaps;
-  relevant_submaps.reserve(seSubmapLookup.size());
-
-  size_t total_submaps = seSubmapLookup.size();
-  size_t culled_submaps = 0;
-
-  for (const auto& submap_pair : seSubmapLookup) {
-    const uint64_t submap_id = submap_pair.first;
-    const auto& submap = submap_pair.second;
-
-    // Update bounds cache if needed
-    if (submapBoundsCache_.find(submap_id) == submapBoundsCache_.end()) {
-      SubmapBounds bounds;
-      bounds.min = submap.map->aabb().min();
-      bounds.max = submap.map->aabb().max();
-      submapBoundsCache_[submap_id] = bounds;
+  // Step 2: Query all submaps directly at their current poses (like mesh generation)
+  okvis::TimerSwitchable timer_query("OccupancyGrid: Query All Submaps");
+  
+  size_t total_queries = 0;
+  size_t valid_queries = 0;
+  size_t occupied_count = 0;
+  size_t free_count = 0;
+  
+  // Query each active submap directly (no caching)
+  for (const auto& [submap_id, submap] : seSubmapLookup) {
+    if (!submap.map) {
+      continue;
     }
-
-    const auto& bounds = submapBoundsCache_[submap_id];
-
-    // Check if submap AABB intersects with grid region
-    if ((bounds.max.array() < grid_min.array()).any() || 
-        (bounds.min.array() > grid_max.array()).any()) {
-      culled_submaps++;
-      continue; // No intersection, skip this submap entirely
-    }
-
-    relevant_submaps.emplace_back(submap_id, &submap);
-  }
-  timer_culling.stop();
-
-  DLOG(INFO) << "OccupancyGrid: Culled " << culled_submaps << "/" << total_submaps 
-             << " submaps (" << relevant_submaps.size() << " relevant)";
-
-  // Early exit if no relevant submaps
-  if (relevant_submaps.empty()) {
-    pubOccupancyGrid_.publish(grid_msg);
-    return;
-  }
-
-  // Fill the occupancy grid by querying only relevant submaps
-  okvis::TimerSwitchable timer_query("OccupancyGrid: Voxel Query");
-  size_t total_cells = grid_msg->info.width * grid_msg->info.height;
-  size_t queried_cells = 0;
-  size_t early_exits = 0;
-
-  for (uint32_t grid_y = 0; grid_y < grid_msg->info.height; ++grid_y) {
-    for (uint32_t grid_x = 0; grid_x < grid_msg->info.width; ++grid_x) {
-      // Convert grid coordinates to world coordinates
-      const float world_x = grid_msg->info.origin.position.x + (grid_x + 0.5f) * occupancy_grid_resolution_;
-      const float world_y = grid_msg->info.origin.position.y + (grid_y + 0.5f) * occupancy_grid_resolution_;
-      const float world_z = occupancy_grid_height_;
-      const Eigen::Vector3f point_W(world_x, world_y, world_z);
-
-      // Query relevant submaps and fuse occupancy values
-      se::field_t best_occ = 0.0f;
-      bool found_valid = false;
-      float max_confidence = 0.0f;
-
-      for (const auto& [submap_id, submap_ptr] : relevant_submaps) {
-        const auto& bounds = submapBoundsCache_[submap_id];
+    
+    LOG(INFO) << "Querying submap " << submap_id << " at current pose";
+    
+    // Query each cell in the output grid
+    for (uint32_t grid_y = 0; grid_y < grid_msg->info.height; ++grid_y) {
+      for (uint32_t grid_x = 0; grid_x < grid_msg->info.width; ++grid_x) {
+        total_queries++;
         
-        // Quick bounds check using cached AABB
-        if ((point_W.array() < bounds.min.array()).any() || 
-            (point_W.array() > bounds.max.array()).any()) {
-          continue; // Point not in this submap
-        }
-
-        queried_cells++;
-
-        // Query this submap
+        // World position of this grid cell
+        const float world_x = grid_msg->info.origin.position.x + (grid_x + 0.5f) * grid_msg->info.resolution;
+        const float world_y = grid_msg->info.origin.position.y + (grid_y + 0.5f) * grid_msg->info.resolution;
+        const float world_z = occupancy_grid_height_;
+        const Eigen::Vector3f point_W(world_x, world_y, world_z);
+        
+        // Query voxel at this world position
         Eigen::Vector3i voxel_coord;
-        submap_ptr->map->pointToVoxel<se::Safe::Off>(point_W, voxel_coord);
-        se::field_t occ = se::get_field(se::visitor::getData(submap_ptr->map->getOctree(), voxel_coord));
-
-        // Use the observation with highest confidence (furthest from 0)
-        float confidence = std::abs(occ);
-        if (confidence > max_confidence) {
-          max_confidence = confidence;
-          best_occ = occ;
-          found_valid = true;
-          
-          // Early exit if we have very high confidence
-          if (confidence > 50.0f) {
-            early_exits++;
-            break;
+        if (!submap.map->pointToVoxel<se::Safe::On>(point_W, voxel_coord)) {
+          continue; // Outside this submap's bounds
+        }
+        
+        auto data = se::visitor::getData(submap.map->getOctree(), voxel_coord);
+        if (!se::is_valid(data)) {
+          continue; // No observed data
+        }
+        
+        valid_queries++;
+        se::field_t occ = se::get_field(data);
+        
+        // Convert TSDF to occupancy value
+        int8_t grid_value = -1;
+        
+        if (std::abs(occ) < 0.5f) {
+          grid_value = 100; // Surface - fully occupied
+          occupied_count++;
+        } else if (occ > 0.5f) {
+          float normalized = std::min((occ - 0.5f) / 1.5f, 1.0f);
+          grid_value = static_cast<int8_t>(75 + normalized * 25);
+          occupied_count++;
+        } else if (occ < -3.0f) {
+          grid_value = 0; // Definitely free
+          free_count++;
+        } else if (occ < -0.5f) {
+          float normalized = std::max((occ + 0.5f) / -2.5f, 0.0f);
+          grid_value = static_cast<int8_t>(25 - normalized * 25);
+          free_count++;
+        }
+        
+        // Write to output grid (only if better than current value)
+        const size_t grid_index = grid_y * grid_msg->info.width + grid_x;
+        if (grid_value != -1) {
+          // If cell is unknown or this is more confident, update it
+          if (grid_msg->data[grid_index] == -1 ||
+              (grid_value > 50 && grid_msg->data[grid_index] < grid_value) ||  // More occupied
+              (grid_value < 50 && grid_msg->data[grid_index] > grid_value)) {  // More free
+            grid_msg->data[grid_index] = grid_value;
           }
         }
       }
-
-      // Convert to ROS occupancy grid format
-      int8_t grid_value = -1; // Default: unknown
-      if (found_valid) {
-        // Supereight2: positive = occupied, negative = free, around 0 = unknown
-        // ROS: 0-100 (0=free, 100=occupied), -1=unknown
-        if (best_occ > 15.0f) {
-          // Occupied
-          grid_value = 100;
-        } else if (best_occ < -15.0f) {
-          // Free
-          grid_value = 0;
-        } else {
-          // Unknown/uncertain
-          grid_value = -1;
-        }
-      }
-
-      // Set grid cell (row-major order)
-      const size_t index = grid_y * grid_msg->info.width + grid_x;
-      grid_msg->data[index] = grid_value;
     }
   }
+  
   timer_query.stop();
-
-  DLOG(INFO) << "OccupancyGrid: Queried " << queried_cells << " submap cells "
-             << "(avg " << (queried_cells / std::max(1UL, total_cells)) << " per grid cell), "
-             << "early exits: " << early_exits;
-
-  // Publish the occupancy grid
-  okvis::TimerSwitchable timer_publish("OccupancyGrid: Publish");
-  LOG(INFO) << "Publishing occupancy grid: " << grid_msg->info.width << "x" << grid_msg->info.height 
-            << " cells, resolution: " << grid_msg->info.resolution << "m";
+  
+  LOG(INFO) << "OccupancyGrid Query Stats:";
+  LOG(INFO) << "  Total queries: " << total_queries;
+  LOG(INFO) << "  Valid responses: " << valid_queries << " (" 
+            << (total_queries > 0 ? 100.0f * valid_queries / total_queries : 0) << "%)";
+  LOG(INFO) << "  Occupied: " << occupied_count;
+  LOG(INFO) << "  Free: " << free_count;
+  
+  // Count final grid statistics
+  size_t final_occupied = 0;
+  size_t final_free = 0;
+  size_t final_unknown = 0;
+  
+  for (const auto& cell : grid_msg->data) {
+    if (cell == -1) final_unknown++;
+    else if (cell >= 50) final_occupied++;
+    else final_free++;
+  }
+  
+  LOG(INFO) << "OccupancyGrid Final Statistics:";
+  LOG(INFO) << "  Occupied: " << final_occupied << " (" 
+            << (100.0f * final_occupied / grid_msg->data.size()) << "%)";
+  LOG(INFO) << "  Free: " << final_free << " (" 
+            << (100.0f * final_free / grid_msg->data.size()) << "%)";
+  LOG(INFO) << "  Unknown: " << final_unknown << " (" 
+            << (100.0f * final_unknown / grid_msg->data.size()) << "%)";
+  
+  // Publish the grid
   pubOccupancyGrid_.publish(grid_msg);
-  timer_publish.stop();
-
+  
   timer_total.stop();
   LOG(INFO) << "========== publishOccupancyGridAsCallback COMPLETED ==========";
 }
