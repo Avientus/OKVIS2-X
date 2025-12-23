@@ -37,7 +37,7 @@ camera_parameters:
     sync_cameras: [0, 1] # the cameras that will be synchronised
     image_delay: 0.025 # [s] timestamp_camera_correct = timestamp_camera - image_delay
     online_calibration: # some parameters to set the online
-        do_extrinsics: false # Do we online-calibrate extrinsics?
+        do_extrinsics: true # Do we online-calibrate extrinsics?
         do_extrinsics_final_ba: false # Do we calibrate extrinsics in final BA?
         sigma_r: 0.01 # T_SCi position prior stdev [m]
         sigma_alpha: 0.1 # T_SCi orientation prior stdev [rad]
@@ -55,7 +55,7 @@ imu_parameters:
     sigma_bg: 4.027038e-03  # gyro bias prior [rad/s]
     sigma_ba: 4.827057e-02 # accelerometer bias prior [m/s^2]
     sigma_gw_c: 3.5772073471410063e-05 # gyro drift noise density [rad/s^s/sqrt(Hz)]
-    sigma_aw_c: 3.940336355177357e-04 # accelerometer drift noise density [m/s^2/sqrt(Hz)]
+    sigma_aw_c: 3.940336355177357e-03 # accelerometer drift noise density [m/s^2/sqrt(Hz)]
     g: 9.81007 # Earth's acceleration due to gravity [m/s^2]
     g0: [0.0, 0.0, 0.0] # initial gyroscope bias [rad/s]
     a0: [0.0, 0.0, 0.0] # initial accelerometer bias [m/s^2]
