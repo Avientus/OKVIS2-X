@@ -24,6 +24,7 @@
 #include <tf2_eigen/tf2_eigen.hpp>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
 #include <pcl_conversions/pcl_conversions.h>
+#include <chrono>
 
 #include <okvis/FrameTypedefs.hpp>
 #include <okvis/timing/Timer.hpp>
@@ -689,6 +690,84 @@ bool Publisher::poseChanged(const Eigen::Isometry3f& pose1,
   return false;
 }
 
+size_t Publisher::updateGlobalGridFromSubmap(uint64_t submap_id,
+                                              const se::Submap<okvis::SupereightMapType>& submap,
+                                              uint32_t grid_width,
+                                              uint32_t grid_height,
+                                              float grid_origin_x,
+                                              float grid_origin_y,
+                                              float grid_resolution,
+                                              float robot_height_z,
+                                              std::vector<int8_t>& global_grid)
+{
+  if (!submap.map) {
+    return 0;
+  }
+  
+  size_t valid_cells = 0;
+  const Eigen::Isometry3f& T_WK = submap.T_WK;
+  
+  // Query each cell in the grid
+  for (uint32_t grid_y = 0; grid_y < grid_height; ++grid_y) {
+    for (uint32_t grid_x = 0; grid_x < grid_width; ++grid_x) {
+      // World position of this grid cell
+      const float world_x = grid_origin_x + (grid_x + 0.5f) * grid_resolution;
+      const float world_y = grid_origin_y + (grid_y + 0.5f) * grid_resolution;
+      const float world_z = robot_height_z;
+      const Eigen::Vector3f point_W(world_x, world_y, world_z);
+      
+      // Transform from world W to submap's frame K
+      const Eigen::Isometry3f T_KW = T_WK.inverse();
+      const Eigen::Vector3f point_K = T_KW * point_W;
+      
+      // Check if point is in submap bounds
+      Eigen::Vector3i voxel_coord;
+      bool in_bounds = submap.map->pointToVoxel<se::Safe::On>(point_K, voxel_coord);
+      
+      if (!in_bounds) {
+        continue; // Outside this submap's bounds
+      }
+      
+      auto data = se::visitor::getData(submap.map->getOctree(), voxel_coord);
+      if (!se::is_valid(data)) {
+        continue; // No observed data
+      }
+      
+      valid_cells++;
+      se::field_t occ = se::get_field(data);
+      
+      // Convert TSDF to occupancy value
+      int8_t grid_value = -1;
+      
+      if (std::abs(occ) < occupancy_grid_occupied_threshold_) {
+        grid_value = 100; // Surface - fully occupied
+      } else if (occ > occupancy_grid_occupied_threshold_) {
+        float normalized = std::min((occ - occupancy_grid_occupied_threshold_) / 1.5f, 1.0f);
+        grid_value = static_cast<int8_t>(75 + normalized * 25);
+      } else if (occ < -3.0f) {
+        grid_value = 0; // Definitely free
+      } else if (occ < -occupancy_grid_occupied_threshold_) {
+        float normalized = std::max((occ + occupancy_grid_occupied_threshold_) / (-3.0f + occupancy_grid_occupied_threshold_), 0.0f);
+        grid_value = static_cast<int8_t>(25 - normalized * 25);
+      }
+      
+      // Write to global grid (only if better than current value)
+      // ROS OccupancyGrid uses: index = x + y * width
+      const size_t grid_index = grid_x + grid_y * grid_width;
+      if (grid_value != -1) {
+        // If cell is unknown or this is more confident, update it
+        if (global_grid[grid_index] == -1 ||
+            (grid_value > 50 && global_grid[grid_index] < grid_value) ||  // More occupied
+            (grid_value < 50 && global_grid[grid_index] > grid_value)) {  // More free
+          global_grid[grid_index] = grid_value;
+        }
+      }
+    }
+  }
+  
+  return valid_cells;
+}
+
 void Publisher::extractSubmapOccupancyGrid(
     uint64_t submap_id,
     const se::Submap<okvis::SupereightMapType>& submap,
@@ -845,6 +924,9 @@ void Publisher::publishOccupancyGridAsCallback(
     const State& latest_state,
     const AlignedUnorderedMap<uint64_t, se::Submap<okvis::SupereightMapType>>& seSubmapLookup)
 {
+  // Start timing measurement
+  const auto start_time = std::chrono::high_resolution_clock::now();
+  
   LOG(INFO) << "========== publishOccupancyGridAsCallback CALLED with " 
             << seSubmapLookup.size() << " active submaps, " 
             << submapOccupancyGrids_.size() << " stored grids ==========";
@@ -976,181 +1058,106 @@ void Publisher::publishOccupancyGridAsCallback(
   grid_msg->info.width = static_cast<uint32_t>(occupancy_grid_width_ / occupancy_grid_resolution_);
   grid_msg->info.height = static_cast<uint32_t>(occupancy_grid_height_dim_ / occupancy_grid_resolution_);
 
-  // Center the grid on the robot's current position
+  // Center the grid at world origin (0, 0) - fixed position, not following robot
   const Eigen::Vector3d t_WB = (latest_state.T_WS * T_SB_).r();
   // Always use robot's current height for the occupancy grid slice
   const float current_robot_height = static_cast<float>(t_WB.z());
-  grid_msg->info.origin.position.x = t_WB.x() - occupancy_grid_width_ / 2.0;
-  grid_msg->info.origin.position.y = t_WB.y() - occupancy_grid_height_dim_ / 2.0;
+  grid_msg->info.origin.position.x = -occupancy_grid_width_ / 2.0;
+  grid_msg->info.origin.position.y = -occupancy_grid_height_dim_ / 2.0;
   grid_msg->info.origin.position.z = current_robot_height;
   grid_msg->info.origin.orientation.w = 1.0;
   
   LOG(INFO) << "Robot position (world): [" << t_WB.x() << ", " << t_WB.y() << ", " << t_WB.z() << "]";
+  LOG(INFO) << "Occupancy grid origin (world): [" << grid_msg->info.origin.position.x << ", " 
+            << grid_msg->info.origin.position.y << ", " << grid_msg->info.origin.position.z << "]";
   LOG(INFO) << "Occupancy grid slice height (robot's current height): " << current_robot_height << "m";
 
-  // Initialize grid data to unknown
-  grid_msg->data.resize(grid_msg->info.width * grid_msg->info.height, -1);
+  // Initialize or check global occupancy grid dimensions
+  const size_t expected_grid_size = grid_msg->info.width * grid_msg->info.height;
+  if (globalOccupancyGrid_.size() != expected_grid_size) {
+    LOG(INFO) << "Initializing global occupancy grid: " << grid_msg->info.width << "x" 
+              << grid_msg->info.height << " cells";
+    globalOccupancyGrid_.resize(expected_grid_size, -1);  // All unknown
+    globalGridWidth_ = grid_msg->info.width;
+    globalGridHeight_ = grid_msg->info.height;
+    globalGridOrigin_ = Eigen::Vector2f(grid_msg->info.origin.position.x, grid_msg->info.origin.position.y);
+  }
+  
   timer_setup.stop();
 
-  // Step 2: Query all submaps directly at their current poses (like mesh generation)
-  okvis::TimerSwitchable timer_query("OccupancyGrid: Query All Submaps");
+  // Step 2: Determine which submaps need updating
+  okvis::TimerSwitchable timer_query("OccupancyGrid: Query Changed Submaps");
   
-  size_t total_queries = 0;
-  size_t valid_queries = 0;
-  size_t occupied_count = 0;
-  size_t free_count = 0;
+  // Find the latest submap (highest ID)
+  uint64_t latest_submap_id = 0;
+  if (!seSubmapLookup.empty()) {
+    latest_submap_id = std::max_element(seSubmapLookup.begin(), seSubmapLookup.end(),
+                                        [](const auto& lhs, const auto& rhs) {
+                                          return lhs.first < rhs.first;
+                                        })->first;
+  }
   
-  // DEBUG: Log grid setup details
-  LOG(INFO) << "=== GRID SETUP DEBUG ===";
-  LOG(INFO) << "Grid dimensions: " << grid_msg->info.width << " x " << grid_msg->info.height << " cells";
-  LOG(INFO) << "Grid resolution: " << grid_msg->info.resolution << " m/cell";
-  LOG(INFO) << "Grid origin (world): [" << grid_msg->info.origin.position.x << ", " 
-            << grid_msg->info.origin.position.y << ", " << grid_msg->info.origin.position.z << "]";
-  LOG(INFO) << "Grid world bounds: X=[" << grid_msg->info.origin.position.x << " to " 
-            << (grid_msg->info.origin.position.x + grid_msg->info.width * grid_msg->info.resolution) << "]";
-  LOG(INFO) << "                   Y=[" << grid_msg->info.origin.position.y << " to " 
-            << (grid_msg->info.origin.position.y + grid_msg->info.height * grid_msg->info.resolution) << "]";
-  
-  // Query each active submap directly (no caching)
+  // Determine which submaps need updating: latest submap + submaps with pose changes
+  std::vector<uint64_t> submaps_to_update;
   for (const auto& [submap_id, submap] : seSubmapLookup) {
     if (!submap.map) {
       continue;
     }
     
-    LOG(INFO) << "Querying submap " << submap_id << " at current pose";
+    bool needs_update = false;
     
-    // DEBUG: Log submap transform
-    const Eigen::Isometry3f& T_WK = submap.T_WK;
-    Eigen::Vector3f submap_origin = T_WK.translation();
-    Eigen::Matrix3f submap_rotation = T_WK.rotation();
-    LOG(INFO) << "  Submap origin (world): [" << submap_origin.x() << ", " 
-              << submap_origin.y() << ", " << submap_origin.z() << "]";
-    LOG(INFO) << "  Submap rotation (first row): [" << submap_rotation(0,0) << ", " 
-              << submap_rotation(0,1) << ", " << submap_rotation(0,2) << "]";
-    
-    // Query each cell in the output grid
-    size_t valid_in_submap = 0;
-    for (uint32_t grid_y = 0; grid_y < grid_msg->info.height; ++grid_y) {
-      for (uint32_t grid_x = 0; grid_x < grid_msg->info.width; ++grid_x) {
-        total_queries++;
-        
-        // World position of this grid cell
-        const float world_x = grid_msg->info.origin.position.x + (grid_x + 0.5f) * grid_msg->info.resolution;
-        const float world_y = grid_msg->info.origin.position.y + (grid_y + 0.5f) * grid_msg->info.resolution;
-        // Always use robot's current height for the occupancy grid slice
-        const float world_z = current_robot_height;
-        const Eigen::Vector3f point_W(world_x, world_y, world_z);
-        
-        // DEBUG: Log first few valid queries
-        static int debug_count = 0;
-        const bool should_debug = (debug_count < 5);
-        
-        // CRITICAL FIX: Transform from world W to map's internal frame M
-        // The map uses T_MW internally, but the submap is at pose T_WK
-        // We need to: W -> K (submap frame) -> M (map's internal frame)
-        const Eigen::Isometry3f& T_WK = submap.T_WK;
-        const Eigen::Isometry3f T_KW = T_WK.inverse();
-        const Eigen::Vector3f point_K = T_KW * point_W;  // Transform to submap's anchor frame
-        
-        // Now use the map's internal pointToVoxel which expects points in its own frame
-        // The map's T_MW handles the centering offset
-        Eigen::Vector3i voxel_coord;
-        bool in_bounds = submap.map->pointToVoxel<se::Safe::On>(point_K, voxel_coord);
-        
-        // DEBUG: Log first out-of-bounds check
-        static int oob_logged = 0;
-        if (!in_bounds && oob_logged < 3) {
-          LOG(INFO) << "    [OOB " << oob_logged << "] point_W=[" << point_W.x() << "," 
-                    << point_W.y() << "," << point_W.z() << "] -> point_K=[" 
-                    << point_K.x() << "," << point_K.y() << "," << point_K.z() 
-                    << "] is outside submap bounds";
-          oob_logged++;
-        }
-        
-        if (!in_bounds) {
-          continue; // Outside this submap's bounds
-        }
-        
-        auto data = se::visitor::getData(submap.map->getOctree(), voxel_coord);
-        if (!se::is_valid(data)) {
-          continue; // No observed data
-        }
-        
-        valid_queries++;
-        valid_in_submap++;
-        se::field_t occ = se::get_field(data);
-        
-        // DEBUG: Log first few valid queries
-        if (should_debug && debug_count < 5) {
-          LOG(INFO) << "    [Sample " << debug_count << "] grid_cell=[" << grid_x << "," << grid_y 
-                    << "] -> world=[" << world_x << "," << world_y << "," << world_z 
-                    << "] -> local_K=[" << point_K.x() << "," << point_K.y() << "," << point_K.z()
-                    << "] -> voxel=[" << voxel_coord.x() << "," << voxel_coord.y() << "," << voxel_coord.z()
-                    << "] -> occ=" << occ;
-        }
-        
-        // Convert TSDF to occupancy value
-        int8_t grid_value = -1;
-        
-        if (std::abs(occ) < occupancy_grid_occupied_threshold_) {
-          grid_value = 100; // Surface - fully occupied
-          occupied_count++;
-        } else if (occ > occupancy_grid_occupied_threshold_) {
-          float normalized = std::min((occ - occupancy_grid_occupied_threshold_) / 1.5f, 1.0f);
-          grid_value = static_cast<int8_t>(75 + normalized * 25);
-          occupied_count++;
-        } else if (occ < -3.0f) {
-          grid_value = 0; // Definitely free
-          free_count++;
-        } else if (occ < -occupancy_grid_occupied_threshold_) {
-          float normalized = std::max((occ + occupancy_grid_occupied_threshold_) / (-3.0f + occupancy_grid_occupied_threshold_), 0.0f);
-          grid_value = static_cast<int8_t>(25 - normalized * 25);
-          free_count++;
-        }
-        
-        // Write to output grid (only if better than current value)
-        // ROS OccupancyGrid uses: index = x + y * width (NOT y * width + x!)
-        const size_t grid_index = grid_x + grid_y * grid_msg->info.width;
-        if (grid_value != -1) {
-          // If cell is unknown or this is more confident, update it
-          if (grid_msg->data[grid_index] == -1 ||
-              (grid_value > 50 && grid_msg->data[grid_index] < grid_value) ||  // More occupied
-              (grid_value < 50 && grid_msg->data[grid_index] > grid_value)) {  // More free
-            grid_msg->data[grid_index] = grid_value;
-            
-            // DEBUG: Log write
-            if (should_debug) {
-              LOG(INFO) << "      -> Writing value=" << static_cast<int>(grid_value) 
-                        << " to grid_index=" << grid_index 
-                        << " (grid_x=" << grid_x << ", grid_y=" << grid_y << ")";
-              debug_count++;
-            }
-          }
+    // Always update the latest submap
+    if (submap_id == latest_submap_id) {
+      needs_update = true;
+      LOG(INFO) << "Submap " << submap_id << " needs update: latest submap";
+    } else {
+      // Check if pose has changed significantly
+      auto it = lastMergedPoses_.find(submap_id);
+      if (it == lastMergedPoses_.end()) {
+        // New submap, needs update
+        needs_update = true;
+        LOG(INFO) << "Submap " << submap_id << " needs update: new submap";
+      } else {
+        // Check if pose changed significantly (0.01m translation or 0.01rad rotation)
+        if (poseChanged(it->second, submap.T_WK, 0.01f, 0.01f)) {
+          needs_update = true;
+          LOG(INFO) << "Submap " << submap_id << " needs update: pose changed significantly";
         }
       }
     }
     
-    LOG(INFO) << "  Submap " << submap_id << " contributed " << valid_in_submap << " valid cells";
+    if (needs_update) {
+      submaps_to_update.push_back(submap_id);
+    }
+  }
+  
+  LOG(INFO) << "Updating " << submaps_to_update.size() << " out of " << seSubmapLookup.size() << " submaps";
+  
+  // Update global grid only for changed submaps
+  size_t total_valid_cells = 0;
+  for (uint64_t submap_id : submaps_to_update) {
+    const auto& submap = seSubmapLookup.at(submap_id);
+    size_t valid_cells = updateGlobalGridFromSubmap(
+        submap_id, submap,
+        grid_msg->info.width, grid_msg->info.height,
+        grid_msg->info.origin.position.x, grid_msg->info.origin.position.y,
+        grid_msg->info.resolution, current_robot_height,
+        globalOccupancyGrid_);
+    total_valid_cells += valid_cells;
+    LOG(INFO) << "  Submap " << submap_id << " contributed " << valid_cells << " valid cells";
+    
+    // Update pose tracking
+    lastMergedPoses_[submap_id] = submap.T_WK;
   }
   
   timer_query.stop();
   
-  // DEBUG: Analyze robot orientation vs map
-  Eigen::Quaterniond q_WS = latest_state.T_WS.q();
-  Eigen::Matrix3d R_WS = q_WS.toRotationMatrix();
-  Eigen::Vector3d robot_forward = R_WS.col(0); // X-axis = forward direction
-  LOG(INFO) << "=== ROBOT ORIENTATION DEBUG ===";
-  LOG(INFO) << "Robot forward direction (world frame): [" 
-            << robot_forward.x() << ", " << robot_forward.y() << ", " << robot_forward.z() << "]";
-  LOG(INFO) << "Robot facing angle (degrees from +X): " 
-            << (std::atan2(robot_forward.y(), robot_forward.x()) * 180.0 / 3.14159265359);
+  // Copy global grid to message for publishing
+  grid_msg->data = globalOccupancyGrid_;
   
-  LOG(INFO) << "OccupancyGrid Query Stats:";
-  LOG(INFO) << "  Total queries: " << total_queries;
-  LOG(INFO) << "  Valid responses: " << valid_queries << " (" 
-            << (total_queries > 0 ? 100.0f * valid_queries / total_queries : 0) << "%)";
-  LOG(INFO) << "  Occupied: " << occupied_count;
-  LOG(INFO) << "  Free: " << free_count;
+  LOG(INFO) << "OccupancyGrid Update Stats:";
+  LOG(INFO) << "  Submaps updated: " << submaps_to_update.size() << " out of " << seSubmapLookup.size();
+  LOG(INFO) << "  Total valid cells updated: " << total_valid_cells;
   
   // Count final grid statistics
   size_t final_occupied = 0;
@@ -1175,7 +1182,14 @@ void Publisher::publishOccupancyGridAsCallback(
   pubOccupancyGrid_.publish(grid_msg);
   
   timer_total.stop();
+  
+  // End timing measurement and log execution time
+  const auto end_time = std::chrono::high_resolution_clock::now();
+  const auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time);
+  const double execution_time_ms = duration.count() / 1000.0;
   LOG(INFO) << "========== publishOccupancyGridAsCallback COMPLETED ==========";
+  LOG(INFO) << "Execution time: " << execution_time_ms << " ms (" 
+            << (execution_time_ms / 1000.0) << " seconds)";
 }
 
 void Publisher::publishAlignmentPointsAsCallback(const okvis::Time& timestamp, const okvis::kinematics::Transformation& T_WS,

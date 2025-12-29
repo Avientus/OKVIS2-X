@@ -321,6 +321,29 @@ class Publisher
   bool poseChanged(const Eigen::Isometry3f& pose1, const Eigen::Isometry3f& pose2, 
                    float trans_thresh = 0.01f, float rot_thresh = 0.01f) const;
 
+  /**
+   * @brief Update the global occupancy grid with data from a single submap
+   * @param submap_id Submap ID
+   * @param submap Submap data
+   * @param grid_width Grid width in cells
+   * @param grid_height Grid height in cells
+   * @param grid_origin_x Grid origin X in world frame
+   * @param grid_origin_y Grid origin Y in world frame
+   * @param grid_resolution Grid resolution in meters
+   * @param robot_height_z Robot's current height in world frame (z-coordinate)
+   * @param global_grid Reference to the global grid to update
+   * @return Number of valid cells updated
+   */
+  size_t updateGlobalGridFromSubmap(uint64_t submap_id,
+                                     const se::Submap<okvis::SupereightMapType>& submap,
+                                     uint32_t grid_width,
+                                     uint32_t grid_height,
+                                     float grid_origin_x,
+                                     float grid_origin_y,
+                                     float grid_resolution,
+                                     float robot_height_z,
+                                     std::vector<int8_t>& global_grid);
+
   float mesh_cutoff_z_ = std::numeric_limits<float>::max(); ///< z cutoff value for visualisation
 
   // Occupancy grid parameters
