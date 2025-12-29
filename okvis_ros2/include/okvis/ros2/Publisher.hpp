@@ -182,15 +182,11 @@ class Publisher
    * @brief Extract and store occupancy grid from a submap
    * @param submap_id Submap ID
    * @param submap Submap data
+   * @param robot_height_z Robot's current height in world frame (z-coordinate)
    */
   void extractSubmapOccupancyGrid(uint64_t submap_id,
-                                   const se::Submap<okvis::SupereightMapType>& submap);
-
-  /**
-   * @brief Set the height at which to generate the occupancy grid (in world frame)
-   * @param height_z The z-height for the occupancy grid slice
-   */
-  void setOccupancyGridHeight(float height_z) { occupancy_grid_height_ = height_z; }
+                                   const se::Submap<okvis::SupereightMapType>& submap,
+                                   float robot_height_z);
 
   /**
    * @brief Set occupancy grid resolution
@@ -207,6 +203,12 @@ class Publisher
     occupancy_grid_width_ = width; 
     occupancy_grid_height_dim_ = height; 
   }
+
+  /**
+   * @brief Set occupancy threshold for classifying cells as occupied
+   * @param threshold TSDF threshold value (cells with abs(TSDF_value) < threshold are considered occupied)
+   */
+  void setOccupancyGridOccupiedThreshold(float threshold) { occupancy_grid_occupied_threshold_ = threshold; }
 
   /**
    * @brief Map-to-frame points visualization callback
@@ -322,10 +324,10 @@ class Publisher
   float mesh_cutoff_z_ = std::numeric_limits<float>::max(); ///< z cutoff value for visualisation
 
   // Occupancy grid parameters
-  float occupancy_grid_height_ = 0.0f; ///< Height at which to slice the occupancy grid
   float occupancy_grid_resolution_ = 0.05f; ///< Resolution of the occupancy grid in meters
   float occupancy_grid_width_ = 20.0f; ///< Width of the occupancy grid in meters
   float occupancy_grid_height_dim_ = 20.0f; ///< Height (y-dimension) of the occupancy grid in meters
+  float occupancy_grid_occupied_threshold_ = 0.5f; ///< TSDF threshold for classifying cells as occupied (values with abs < threshold are occupied)
   
   // Occupancy grid caching for efficiency
   struct SubmapBounds {

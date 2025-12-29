@@ -111,8 +111,8 @@ struct SubMapConfig{
     bool occupancyGridEnable = true;
     float occupancyGridResolution = 0.05f;  // Grid cell size in meters
     float occupancyGridWidth = 20.0f;       // Grid width in meters
-    float occupancyGridHeight = 20.0f;      // Grid height in meters  
-    float occupancyGridSliceHeight = 0.0f;  // Height at which to slice
+    float occupancyGridHeight = 20.0f;      // Grid height in meters
+    float occupancyGridOccupiedThreshold = 0.5f;  // TSDF threshold for classifying cells as occupied (values with abs < threshold are occupied)
 
     /** Default Constructor
      */
@@ -169,7 +169,7 @@ struct SubMapConfig{
       se::yaml::subnode_as_float(node, "occupancy_grid_resolution", occupancyGridResolution);
       se::yaml::subnode_as_float(node, "occupancy_grid_width", occupancyGridWidth);
       se::yaml::subnode_as_float(node, "occupancy_grid_height", occupancyGridHeight);
-      se::yaml::subnode_as_float(node, "occupancy_grid_slice_height", occupancyGridSliceHeight);
+      se::yaml::subnode_as_float(node, "occupancy_grid_occupied_threshold", occupancyGridOccupiedThreshold);
     }
 
     friend std::ostream& operator<<(std::ostream& os, const SubMapConfig& c)
@@ -190,11 +190,11 @@ struct SubMapConfig{
       os << str_utils::value_to_pretty_str(c.depthScalingFactor, "depth_scaling_factor") << " \n";
       os << str_utils::value_to_pretty_str(c.far_plane, "far_plane") << " \n";
       os << str_utils::value_to_pretty_str(c.near_plane, "near_plane") << " \n";
-      os << str_utils::bool_to_pretty_str(c.occupancyGridEnable, "occupancy_grid_enable") << " \n";
-      os << str_utils::value_to_pretty_str(c.occupancyGridResolution, "occupancy_grid_resolution") << " \n";
-      os << str_utils::value_to_pretty_str(c.occupancyGridWidth, "occupancy_grid_width") << " \n";
-      os << str_utils::value_to_pretty_str(c.occupancyGridHeight, "occupancy_grid_height") << " \n";
-      os << str_utils::value_to_pretty_str(c.occupancyGridSliceHeight, "occupancy_grid_slice_height") << " \n";
+    os << str_utils::bool_to_pretty_str(c.occupancyGridEnable, "occupancy_grid_enable") << " \n";
+    os << str_utils::value_to_pretty_str(c.occupancyGridResolution, "occupancy_grid_resolution") << " \n";
+    os << str_utils::value_to_pretty_str(c.occupancyGridWidth, "occupancy_grid_width") << " \n";
+    os << str_utils::value_to_pretty_str(c.occupancyGridHeight, "occupancy_grid_height") << " \n";
+    os << str_utils::value_to_pretty_str(c.occupancyGridOccupiedThreshold, "occupancy_grid_occupied_threshold") << " \n";
       return os;
     }
 

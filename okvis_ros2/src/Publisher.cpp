@@ -691,7 +691,8 @@ bool Publisher::poseChanged(const Eigen::Isometry3f& pose1,
 
 void Publisher::extractSubmapOccupancyGrid(
     uint64_t submap_id,
-    const se::Submap<okvis::SupereightMapType>& submap)
+    const se::Submap<okvis::SupereightMapType>& submap,
+    float robot_height_z)
 {
   LOG(INFO) << "Extracting occupancy grid from submap " << submap_id;
   
@@ -749,7 +750,8 @@ void Publisher::extractSubmapOccupancyGrid(
       total_queries++;
       const float world_x = aabb_min_W.x() + (grid_x + 0.5f) * resolution;
       const float world_y = aabb_min_W.y() + (grid_y + 0.5f) * resolution;
-      const float world_z = occupancy_grid_height_;
+      // Use robot's current height for the occupancy grid slice
+      const float world_z = robot_height_z;
       const Eigen::Vector3f point_W(world_x, world_y, world_z);
       
       // Transform from world to submap's local frame before querying
@@ -779,25 +781,25 @@ void Publisher::extractSubmapOccupancyGrid(
       // For TSDF: negative = free space, near zero = surface (occupied), positive = behind surface
       int8_t grid_value = -1;
       
-      // Surface/Occupied: values close to zero (±0.5 voxels from surface)
-      if (std::abs(occ) < 0.5f) {
+      // Surface/Occupied: values close to zero (within threshold voxels from surface)
+      if (std::abs(occ) < occupancy_grid_occupied_threshold_) {
         // Very close to surface - definitely occupied
         grid_value = 100; // Fully occupied
         occupied_cells++;
-      } else if (occ > 0.5f) {
+      } else if (occ > occupancy_grid_occupied_threshold_) {
         // Positive values behind surface - treat as occupied
-        // Scale from 0.5 to 2.0 -> 75 to 100
-        float normalized = std::min((occ - 0.5f) / 1.5f, 1.0f);
+        // Scale from threshold to (threshold + 1.5) -> 75 to 100
+        float normalized = std::min((occ - occupancy_grid_occupied_threshold_) / 1.5f, 1.0f);
         grid_value = static_cast<int8_t>(75 + normalized * 25);
         occupied_cells++;
       } else if (occ < -3.0f) {
         // Very negative = definitely free space
         grid_value = 0; // Fully free
         free_cells++;
-      } else if (occ < -0.5f) {
+      } else if (occ < -occupancy_grid_occupied_threshold_) {
         // Moderately negative = likely free
-        // Scale from -0.5 to -3.0 -> 25 to 0
-        float normalized = std::max((occ + 0.5f) / -2.5f, 0.0f);
+        // Scale from -threshold to -3.0 -> 25 to 0
+        float normalized = std::max((occ + occupancy_grid_occupied_threshold_) / (-3.0f + occupancy_grid_occupied_threshold_), 0.0f);
         grid_value = static_cast<int8_t>(25 - normalized * 25);
         free_cells++;
       } else {
@@ -976,14 +978,15 @@ void Publisher::publishOccupancyGridAsCallback(
 
   // Center the grid on the robot's current position
   const Eigen::Vector3d t_WB = (latest_state.T_WS * T_SB_).r();
+  // Always use robot's current height for the occupancy grid slice
+  const float current_robot_height = static_cast<float>(t_WB.z());
   grid_msg->info.origin.position.x = t_WB.x() - occupancy_grid_width_ / 2.0;
   grid_msg->info.origin.position.y = t_WB.y() - occupancy_grid_height_dim_ / 2.0;
-  grid_msg->info.origin.position.z = occupancy_grid_height_;
+  grid_msg->info.origin.position.z = current_robot_height;
   grid_msg->info.origin.orientation.w = 1.0;
   
   LOG(INFO) << "Robot position (world): [" << t_WB.x() << ", " << t_WB.y() << ", " << t_WB.z() << "]";
-  LOG(INFO) << "Slice height (world): " << occupancy_grid_height_;
-  LOG(INFO) << "Height difference (robot Z - slice): " << (t_WB.z() - occupancy_grid_height_) << "m";
+  LOG(INFO) << "Occupancy grid slice height (robot's current height): " << current_robot_height << "m";
 
   // Initialize grid data to unknown
   grid_msg->data.resize(grid_msg->info.width * grid_msg->info.height, -1);
@@ -1034,9 +1037,8 @@ void Publisher::publishOccupancyGridAsCallback(
         // World position of this grid cell
         const float world_x = grid_msg->info.origin.position.x + (grid_x + 0.5f) * grid_msg->info.resolution;
         const float world_y = grid_msg->info.origin.position.y + (grid_y + 0.5f) * grid_msg->info.resolution;
-        // Use robot-relative height if slice_height is very small (< 0.01), otherwise use absolute
-        const float world_z = (std::abs(occupancy_grid_height_) < 0.01f) ? 
-                              static_cast<float>(t_WB.z()) : occupancy_grid_height_;
+        // Always use robot's current height for the occupancy grid slice
+        const float world_z = current_robot_height;
         const Eigen::Vector3f point_W(world_x, world_y, world_z);
         
         // DEBUG: Log first few valid queries
@@ -1090,18 +1092,18 @@ void Publisher::publishOccupancyGridAsCallback(
         // Convert TSDF to occupancy value
         int8_t grid_value = -1;
         
-        if (std::abs(occ) < 0.5f) {
+        if (std::abs(occ) < occupancy_grid_occupied_threshold_) {
           grid_value = 100; // Surface - fully occupied
           occupied_count++;
-        } else if (occ > 0.5f) {
-          float normalized = std::min((occ - 0.5f) / 1.5f, 1.0f);
+        } else if (occ > occupancy_grid_occupied_threshold_) {
+          float normalized = std::min((occ - occupancy_grid_occupied_threshold_) / 1.5f, 1.0f);
           grid_value = static_cast<int8_t>(75 + normalized * 25);
           occupied_count++;
         } else if (occ < -3.0f) {
           grid_value = 0; // Definitely free
           free_count++;
-        } else if (occ < -0.5f) {
-          float normalized = std::max((occ + 0.5f) / -2.5f, 0.0f);
+        } else if (occ < -occupancy_grid_occupied_threshold_) {
+          float normalized = std::max((occ + occupancy_grid_occupied_threshold_) / (-3.0f + occupancy_grid_occupied_threshold_), 0.0f);
           grid_value = static_cast<int8_t>(25 - normalized * 25);
           free_count++;
         }
