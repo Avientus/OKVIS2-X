@@ -77,7 +77,7 @@ int main(int argc, char **argv) {
 
   node->declare_parameter("config_filename", "");
   node->declare_parameter("se_config_filename", "");
-  node->declare_parameter("imu_propagated_state_publishing_rate", 0.0);
+  node->declare_parameter("imu_propagated_state_publishing_rate", 5.0);
   node->declare_parameter("mesh_cutoff_z", std::numeric_limits<float>::max());
   node->declare_parameter("save_submap_meshes", false);
   node->declare_parameter("csv_path", "/tmp/");
@@ -92,7 +92,7 @@ int main(int argc, char **argv) {
     LOG(ERROR) << "ros parameter 'se_config_filename' not set";
     return EXIT_FAILURE;
   }
-  double imu_propagated_state_publishing_rate = 0.0;
+  double imu_propagated_state_publishing_rate = 5.0;
   node->get_parameter("imu_propagated_state_publishing_rate", imu_propagated_state_publishing_rate);
 
 
@@ -312,6 +312,15 @@ int main(int argc, char **argv) {
   } else {
     LOG(INFO) << "Occupancy grid publishing is DISABLED in config";
   }
+
+  // Set realtime odometry publishing callback
+  processor.se_interface_.setRealtimePublishCallback(
+    std::bind(&okvis::Publisher::publishRealTimePropagation, &publisher,
+              std::placeholders::_1, std::placeholders::_2, std::placeholders::_3,
+              std::placeholders::_4, std::placeholders::_5)
+  );
+  processor.se_interface_.setOdometryPublishingRate(imu_propagated_state_publishing_rate);
+  LOG(INFO) << "Realtime odometry publishing callback registered with rate: " << imu_propagated_state_publishing_rate << " Hz";
 
   // require a special termination handler to properly close
   shtdown = false;
