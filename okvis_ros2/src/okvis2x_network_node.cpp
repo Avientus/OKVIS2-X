@@ -298,11 +298,12 @@ int main(int argc, char **argv) {
     LOG(INFO) << "Setting up occupancy grid callback...";
     LOG(INFO) << "  Resolution: " << submapConfig.occupancyGridResolution << "m";
     LOG(INFO) << "  Size: " << submapConfig.occupancyGridWidth << "m x " << submapConfig.occupancyGridHeight << "m";
-    LOG(INFO) << "  Slice height: " << submapConfig.occupancyGridSliceHeight << "m";
+    LOG(INFO) << "  Slice height: Always uses robot's current height";
+    LOG(INFO) << "  Occupied threshold: " << submapConfig.occupancyGridOccupiedThreshold;
     
-    publisher.setOccupancyGridHeight(submapConfig.occupancyGridSliceHeight);
     publisher.setOccupancyGridResolution(submapConfig.occupancyGridResolution);
     publisher.setOccupancyGridSize(submapConfig.occupancyGridWidth, submapConfig.occupancyGridHeight);
+    publisher.setOccupancyGridOccupiedThreshold(submapConfig.occupancyGridOccupiedThreshold);
     processor.setOccupancyGridCallback(
       std::bind(&okvis::Publisher::publishOccupancyGridAsCallback, &publisher, 
                 std::placeholders::_1, std::placeholders::_2)
