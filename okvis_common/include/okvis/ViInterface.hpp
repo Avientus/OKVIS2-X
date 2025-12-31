@@ -202,6 +202,7 @@ struct TrackingState {
   TrackingQuality trackingQuality; ///< The tracking quality.
   bool recognisedPlace; ///< Has this fram recognised a place / relocalised / loop-closed?
   bool isFullGraphOptimising; ///< Is the background loop closure optimisation currently ongoing?
+  bool loopClosureCompleted; ///< Has loop closure synchronization completed (poses corrected)?
   StateId currentKeyframeId; ///< The ID of the current keyframe.
 };
 

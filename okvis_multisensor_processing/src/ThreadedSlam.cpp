@@ -1057,6 +1057,10 @@ void ThreadedSlam::optimisePublishMarginalise(MultiFramePtr multiFrame,
     trackingState.trackingQuality = TrackingQuality::Good;
   }
   trackingState.currentKeyframeId = estimator_.mostOverlappedStateId(id, false);
+  
+  // Set loop closure flag: true if synchroniseRealtimeAndFullGraph() was called
+  // (indicated by updatedStatesSync.size() > 0)
+  trackingState.loopClosureCompleted = (updatedStatesSync.size() > 0);
 
   // re-propagate
   hasStarted_.store(true);
@@ -1070,6 +1074,7 @@ void ThreadedSlam::optimisePublishMarginalise(MultiFramePtr multiFrame,
     publicationData.state = state;
     publicationData.trackingState = trackingState;
     publicationData.updatedStates.reset(new AlignedMap<StateId, State>());
+    
     if(updatedStatesSync.size()>0) {
       updatedStateIds = updatedStatesSync;
     } else {
@@ -1397,6 +1402,8 @@ void ThreadedSlam::stopThreading() {
         trackingState.trackingQuality = TrackingQuality::Good;
       }
       trackingState.currentKeyframeId = estimator_.mostOverlappedStateId(currentId, false);
+      // Loop closure completed - this is called after synchroniseRealtimeAndFullGraph()
+      trackingState.loopClosureCompleted = true;
       hasStarted_.store(true);
 
       // now publish
@@ -1577,6 +1584,8 @@ void ThreadedSlam::doFinalBa()
     trackingState.trackingQuality = TrackingQuality::Good;
   }
   trackingState.currentKeyframeId = estimator_.mostOverlappedStateId(currentId, false);
+  // Final BA - no loop closure synchronization here
+  trackingState.loopClosureCompleted = false;
   hasStarted_.store(true);
 
   // now publish
