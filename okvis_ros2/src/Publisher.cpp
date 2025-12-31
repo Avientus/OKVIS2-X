@@ -52,6 +52,14 @@ void Publisher::setupNode(std::shared_ptr<rclcpp::Node> node)
   // set up node
   node_ = node;
 
+  // Initialize tf broadcaster
+  tf_broadcaster_ = std::make_shared<tf2_ros::TransformBroadcaster>(node_);
+
+  // Initialize odom frame to align with world frame initially
+  T_odom_world_ = okvis::kinematics::Transformation(); // Identity initially
+  lastWorldPoseValid_ = false;
+  lastOdomDriftLogTime_ = okvis::Time(0.0);
+
   // set up publishers
   slice_pub_ =              threadedPublisher_->registerPublisher<visualization_msgs::msg::Marker>("se_map_slice");
   pubObometry_ =            threadedOdometryPublisher_->registerPublisher<nav_msgs::msg::Odometry>("okvis_odometry");
@@ -169,6 +177,12 @@ bool Publisher::realtimePredictAndPublish(const okvis::Time& stamp,
   const kinematics::Transformation T_SB = T_BS_.inverse();
   const okvis::kinematics::Transformation T_WB = T_WS * T_SB;
 
+  // Publish transforms via tf2: world->odom and odom->body
+  // Note: We don't have loop closure information here (no trackingState),
+  // so pass false - loop closures are only detected in publishEstimatorUpdate()
+  updateOdomFrameAfterLoopClosure(T_WB, state.timestamp, false);
+  publishTransforms(T_WB, t);
+
   // Odometry
   auto odometryMsg = std::make_shared<nav_msgs::msg::Odometry>();  // Odometry message.
   odometryMsg->header.frame_id = "world";
@@ -224,6 +238,15 @@ void Publisher::publishEstimatorUpdate(
   const okvis::kinematics::Transformation T_WS = state.T_WS;
   const kinematics::Transformation T_SB = T_BS_.inverse();
   const okvis::kinematics::Transformation T_WB = T_WS * T_SB;
+
+  // Use the loop closure flag from TrackingState (set when synchroniseRealtimeAndFullGraph() completes)
+  const bool loopClosureDetected = trackingState.loopClosureCompleted;
+  
+  // Update odom frame if loop closure occurred
+  updateOdomFrameAfterLoopClosure(T_WB, state.timestamp, loopClosureDetected);
+
+  // Publish transforms via tf2: world->odom and odom->body
+  publishTransforms(T_WB, t);
 
   // publish pose:
   auto poseMsg = std::make_shared<geometry_msgs::msg::TransformStamped>(); // Pose message.
@@ -688,6 +711,155 @@ bool Publisher::poseChanged(const Eigen::Isometry3f& pose1,
   }
   
   return false;
+}
+
+void Publisher::updateOdomFrameAfterLoopClosure(
+    const okvis::kinematics::Transformation& currentWorldPose,
+    const okvis::Time& currentTime,
+    bool loopClosureDetected)
+{
+  if (!lastWorldPoseValid_) {
+    lastWorldPose_ = currentWorldPose;
+    lastWorldPoseTime_ = currentTime;
+    lastWorldPoseValid_ = true;
+    return;
+  }
+
+  // If loop closure was detected from SLAM system, update odom frame directly
+  if (loopClosureDetected) {
+    // Compute change in world frame due to loop closure correction
+    const okvis::kinematics::Transformation T_world_old_world_new = 
+        lastWorldPose_.inverse() * currentWorldPose;
+    
+    // Store old odom-world transform for logging
+    const okvis::kinematics::Transformation T_odom_world_old = T_odom_world_;
+    
+    // Update T_odom_world to keep odom frame smooth
+    // T_odom_world_new = T_odom_world_old * T_world_old_world_new
+    // This ensures: T_odom_body stays the same (smooth odom frame)
+    T_odom_world_ = T_odom_world_ * T_world_old_world_new;
+    
+    // Log loop closure detection and drift information
+    const double translationChange = T_world_old_world_new.r().norm();
+    const Eigen::Vector3d r_odom_world = T_odom_world_.r();
+    const double odomDriftTranslation = r_odom_world.norm();
+    
+    // Compute rotation angle
+    Eigen::AngleAxisd angleAxis(T_odom_world_.q());
+    const double odomDriftRotation = std::abs(angleAxis.angle()) * 180.0 / M_PI; // Convert to degrees
+    
+    LOG(INFO) << "=== Loop closure detected (from SLAM)! Odom frame updated ===";
+    LOG(INFO) << "  World frame correction: " << translationChange << " m";
+    LOG(INFO) << "  Current odom-world drift:";
+    LOG(INFO) << "    Translation: " << odomDriftTranslation << " m [" 
+              << r_odom_world.x() << ", " << r_odom_world.y() << ", " << r_odom_world.z() << "]";
+    LOG(INFO) << "    Rotation: " << odomDriftRotation << " deg";
+    
+    lastWorldPose_ = currentWorldPose;
+    lastWorldPoseTime_ = currentTime;
+    return;
+  }
+
+  // Fallback: heuristic detection for cases where loop closure info is not available
+  // (e.g., in realtimePredictAndPublish where we don't have trackingState)
+  const double dt = (currentTime - lastWorldPoseTime_).toSec();
+  if (dt <= 0 || dt > 1.0) { // Skip if invalid time or too large gap
+    lastWorldPose_ = currentWorldPose;
+    lastWorldPoseTime_ = currentTime;
+    return;
+  }
+
+  // Compute change in world frame
+  const okvis::kinematics::Transformation T_world_old_world_new = 
+      lastWorldPose_.inverse() * currentWorldPose;
+  
+  const double translationChange = T_world_old_world_new.r().norm();
+  const double estimatedSpeed = translationChange / dt;
+  
+  // Threshold: if speed > 5 m/s and translation > 5cm, likely a loop closure correction
+  // (This is a fallback heuristic - should rarely trigger if loopClosureDetected flag works correctly)
+  const double maxExpectedSpeed = 5.0; // m/s
+  if (estimatedSpeed > maxExpectedSpeed && translationChange > 0.05) {
+    T_odom_world_ = T_odom_world_ * T_world_old_world_new;
+    LOG(WARNING) << "Loop closure detected (heuristic fallback)! Updated odom frame. "
+                 << "Speed: " << estimatedSpeed << " m/s, "
+                 << "Translation: " << translationChange << " m";
+  }
+  
+  lastWorldPose_ = currentWorldPose;
+  lastWorldPoseTime_ = currentTime;
+}
+
+void Publisher::publishTransforms(
+    const okvis::kinematics::Transformation& T_WB,
+    const rclcpp::Time& t)
+{
+  // Log odom-world drift periodically (every 5 seconds) or if drift is significant
+  okvis::Time currentTime(t.seconds()); // rclcpp::Time.seconds() returns double (total seconds)
+  const double dt_since_last_log = (currentTime - lastOdomDriftLogTime_).toSec();
+  const Eigen::Vector3d r_odom_world = T_odom_world_.r();
+  const double odomDriftTranslation = r_odom_world.norm();
+  
+  // Compute rotation angle
+  Eigen::AngleAxisd angleAxis(T_odom_world_.q());
+  const double odomDriftRotation = std::abs(angleAxis.angle()) * 180.0 / M_PI; // Convert to degrees
+  
+  // Log if significant drift exists (>1cm or >1deg) or periodically (every 5 seconds)
+  const bool significantDrift = odomDriftTranslation > 0.01 || odomDriftRotation > 1.0;
+  const bool periodicLog = dt_since_last_log >= 5.0;
+  
+  if (significantDrift && (periodicLog || dt_since_last_log < 0.0)) {
+    LOG(INFO) << "Odom-World drift status:";
+    LOG(INFO) << "  Translation: " << odomDriftTranslation << " m [" 
+              << r_odom_world.x() << ", " << r_odom_world.y() << ", " << r_odom_world.z() << "]";
+    LOG(INFO) << "  Rotation: " << odomDriftRotation << " deg";
+    lastOdomDriftLogTime_ = currentTime;
+  }
+  
+  std::vector<geometry_msgs::msg::TransformStamped> transforms;
+  
+  // 1. Publish world -> odom transform
+  const okvis::kinematics::Transformation T_world_odom = T_odom_world_.inverse();
+  
+  geometry_msgs::msg::TransformStamped transform_world_odom;
+  transform_world_odom.header.stamp = t;
+  transform_world_odom.header.frame_id = "world";
+  transform_world_odom.child_frame_id = "odom";
+  
+  const Eigen::Quaterniond q_world_odom = T_world_odom.q();
+  transform_world_odom.transform.rotation.x = q_world_odom.x();
+  transform_world_odom.transform.rotation.y = q_world_odom.y();
+  transform_world_odom.transform.rotation.z = q_world_odom.z();
+  transform_world_odom.transform.rotation.w = q_world_odom.w();
+  
+  const Eigen::Vector3d r_world_odom = T_world_odom.r();
+  transform_world_odom.transform.translation.x = r_world_odom.x();
+  transform_world_odom.transform.translation.y = r_world_odom.y();
+  transform_world_odom.transform.translation.z = r_world_odom.z();
+  transforms.push_back(transform_world_odom);
+  
+  // 2. Publish odom -> body transform
+  const okvis::kinematics::Transformation T_odom_B = T_odom_world_ * T_WB;
+  
+  geometry_msgs::msg::TransformStamped transform_odom_body;
+  transform_odom_body.header.stamp = t;
+  transform_odom_body.header.frame_id = "odom";
+  transform_odom_body.child_frame_id = "body";
+  
+  const Eigen::Quaterniond q_odom_B = T_odom_B.q();
+  transform_odom_body.transform.rotation.x = q_odom_B.x();
+  transform_odom_body.transform.rotation.y = q_odom_B.y();
+  transform_odom_body.transform.rotation.z = q_odom_B.z();
+  transform_odom_body.transform.rotation.w = q_odom_B.w();
+  
+  const Eigen::Vector3d r_odom_B = T_odom_B.r();
+  transform_odom_body.transform.translation.x = r_odom_B.x();
+  transform_odom_body.transform.translation.y = r_odom_B.y();
+  transform_odom_body.transform.translation.z = r_odom_B.z();
+  transforms.push_back(transform_odom_body);
+  
+  // Send all transforms at once (more efficient)
+  tf_broadcaster_->sendTransform(transforms);
 }
 
 size_t Publisher::updateGlobalGridFromSubmap(uint64_t submap_id,

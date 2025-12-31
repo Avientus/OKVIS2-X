@@ -290,6 +290,14 @@ class Publisher
   
   nav_msgs::msg::Odometry lastOdom_; ///< Last odometry message.
 
+  // TF2 transform broadcasting
+  std::shared_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster_; ///< Transform broadcaster for tf2
+  okvis::kinematics::Transformation T_odom_world_; ///< Transformation from odom frame to world frame
+  okvis::kinematics::Transformation lastWorldPose_; ///< Last published world frame pose (for loop closure detection)
+  bool lastWorldPoseValid_; ///< Whether lastWorldPose_ is valid
+  okvis::Time lastWorldPoseTime_; ///< Timestamp of last world pose
+  okvis::Time lastOdomDriftLogTime_; ///< Timestamp of last odom drift logging (for periodic logging)
+
   // Submap-related members.
   std::unordered_map<uint64_t, visualization_msgs::msg::Marker> submapMeshLookup_; ///< Lookup for submap meshes.
   std::unordered_map<uint64_t, okvis::SupereightMapType::SurfaceMesh> submapSurfaceMesh_; ///< Surface meshes for submaps.
@@ -320,6 +328,26 @@ class Publisher
   // Helper to check if pose changed significantly
   bool poseChanged(const Eigen::Isometry3f& pose1, const Eigen::Isometry3f& pose2, 
                    float trans_thresh = 0.01f, float rot_thresh = 0.01f) const;
+
+  /**
+   * @brief Update odom frame transformation after loop closure detection
+   * @param currentWorldPose Current pose in world frame
+   * @param currentTime Current timestamp
+   * @param loopClosureDetected True if loop closure was detected (e.g., from trackingState.recognisedPlace or large updatedStates)
+   */
+  void updateOdomFrameAfterLoopClosure(
+      const okvis::kinematics::Transformation& currentWorldPose,
+      const okvis::Time& currentTime,
+      bool loopClosureDetected);
+
+  /**
+   * @brief Publish transforms via tf2: world->odom and odom->body
+   * @param T_WB Transformation from world to body frame
+   * @param t ROS2 timestamp
+   */
+  void publishTransforms(
+      const okvis::kinematics::Transformation& T_WB,
+      const rclcpp::Time& t);
 
   /**
    * @brief Update the global occupancy grid with data from a single submap
