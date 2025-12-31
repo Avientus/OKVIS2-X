@@ -94,8 +94,8 @@ estimator_parameters:
     realtime_num_threads: 3 # number of threads for the realtime optimisation
     full_graph_iterations: 15 # don't do more than these for the full (background) optimisation
     full_graph_num_threads: 3 # number of threads for the full (background) optimisation
-    p_dbow: 0.4 # Match threshold for dBoW -- unfortunately this varies with setups.
-    drift_percentage_heuristic: 1.35 # % allowed drift in loop closures rel. to dist. travelled.
+    p_dbow: 0.35 # Match threshold for dBoW -- unfortunately this varies with setups.
+    drift_percentage_heuristic: 2.5 # % allowed drift in loop closures rel. to dist. travelled.
 
 # some options for how and what to output
 output_parameters:
