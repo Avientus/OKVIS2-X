@@ -15,7 +15,7 @@ option (BUILD_TESTS
 option (BUILD_ROS2
         "Builds ros2 wrapper" ON)
 option (HAVE_LIBREALSENSE
-        "Use realsense as part of okvis" ON)
+        "Use realsense as part of okvis" OFF)
 option (USE_NN
         "Use keypoint classification as part of okvis, requires torch" ON)
 option (USE_GPU
@@ -387,6 +387,7 @@ if(BUILD_ROS2)
   find_package(sensor_msgs REQUIRED)
   find_package(visualization_msgs REQUIRED)
   find_package(nav_msgs REQUIRED)
+  find_package(detection_msgs REQUIRED)
   find_package(Boost REQUIRED)
   find_package(tf2_eigen REQUIRED)
   find_package(tf2_geometry_msgs REQUIRED)
@@ -475,6 +476,7 @@ if(BUILD_ROS2)
     visualization_msgs
     std_srvs
     nav_msgs
+    detection_msgs
     pcl_conversions
     message_filters
     cv_bridge

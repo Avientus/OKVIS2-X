@@ -52,6 +52,7 @@
 #endif
 
 #include <std_srvs/srv/set_bool.hpp>
+#include <detection_msgs/srv/bounding_box_to3_d.hpp>
 
 
 std::atomic_bool shtdown; ///< Shutdown requested?
@@ -295,12 +296,6 @@ int main(int argc, char **argv) {
 
   // Set occupancy grid callback
   if (submapConfig.occupancyGridEnable) {
-    LOG(INFO) << "Setting up occupancy grid callback...";
-    LOG(INFO) << "  Resolution: " << submapConfig.occupancyGridResolution << "m";
-    LOG(INFO) << "  Size: " << submapConfig.occupancyGridWidth << "m x " << submapConfig.occupancyGridHeight << "m";
-    LOG(INFO) << "  Slice height: Always uses robot's current height";
-    LOG(INFO) << "  Occupied threshold: " << submapConfig.occupancyGridOccupiedThreshold;
-    
     publisher.setOccupancyGridResolution(submapConfig.occupancyGridResolution);
     publisher.setOccupancyGridSize(submapConfig.occupancyGridWidth, submapConfig.occupancyGridHeight);
     publisher.setOccupancyGridOccupiedThreshold(submapConfig.occupancyGridOccupiedThreshold);
@@ -308,9 +303,6 @@ int main(int argc, char **argv) {
       std::bind(&okvis::Publisher::publishOccupancyGridAsCallback, &publisher, 
                 std::placeholders::_1, std::placeholders::_2)
     );
-    LOG(INFO) << "Occupancy grid callback registered successfully";
-  } else {
-    LOG(INFO) << "Occupancy grid publishing is DISABLED in config";
   }
 
   // Set realtime odometry publishing callback
@@ -339,6 +331,12 @@ int main(int argc, char **argv) {
         response->success = true;
         response->message = "Requested Shutdown. Starting offline processing.";
   });
+
+  // Register bounding box to 3D service
+  // Note: Service will return error if submapping is not enabled
+  // Use absolute name to make it accessible regardless of node namespace
+  publisher.registerBoundingBoxTo3DService<detection_msgs::srv::BoundingBoxTo3D>("bounding_box_to_3d");
+  LOG(INFO) << "Registered bounding box to 3D service at /bounding_box_to_3d";
 
   threadedOdometryPublisher->startThread();
   threadedImagePublisher->startThread();

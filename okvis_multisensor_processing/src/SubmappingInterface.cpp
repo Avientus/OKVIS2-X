@@ -756,8 +756,6 @@ namespace okvis {
 
             addSubmapAlignmentFactors(supereightFrame);
 
-            LOG(INFO) << "New submap generation with counter " << submapCounter_ << " (kf Id: " << supereightFrame.keyFrameId << ")";
-
             // now we integrate in this keyframe, until we find a new one that is distant enough
             seSubmapLookup_[supereightFrame.keyFrameId].map = std::shared_ptr<SupereightMapType>(new SupereightMapType(mapConfig_, dataConfig_));
             prevKeyframeId_ = supereightFrame.keyFrameId;
@@ -929,16 +927,13 @@ namespace okvis {
                      << ", seSubmapLookup size: " << seSubmapLookup_.size();
           
           if (occupancyGridCallback_) {
-            LOG(INFO) << "Calling occupancy grid callback with " << seSubmapLookup_.size() << " submaps";
             occupancyGridCallback_(current_state, seSubmapLookup_);
-            LOG(INFO) << "Occupancy grid callback completed";
           } else {
             LOG(WARNING) << "Occupancy grid callback is NOT SET!";
           }
         
           if(create_new_submap && previousSubmapId_ != UNINITIALIZED_ID){
 
-            LOG(INFO) << "Completed integrating submap " << previousSubmapId_ << " which is submap number " << seSubmapLookup_.size();
             LOG(INFO) << okvis::timing::Timing::print();
 
             DLOG(INFO) << "Trying to mesh for frame " << previousSubmapId_;
@@ -990,7 +985,6 @@ namespace okvis {
     }
 
     void SubmappingInterface::saveAllSubmapMeshes(){
-      LOG(INFO) << "There are " << seSubmapLookup_.size() << " submaps to save";
       for(auto it = seSubmapLookup_.begin(); it != seSubmapLookup_.end(); ++it){
         saveSubmap(it->first);        
       }

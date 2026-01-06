@@ -28,6 +28,8 @@
 
 #include <okvis/FrameTypedefs.hpp>
 #include <okvis/timing/Timer.hpp>
+#include <se/map/raycaster.hpp>
+#include <okvis/cameras/CameraBase.hpp>
 
 /// \brief okvis Main namespace of this package.
 namespace okvis {
@@ -69,6 +71,7 @@ void Publisher::setupNode(std::shared_ptr<rclcpp::Node> node)
   pubSubmapMesh_ =          threadedPublisher_->registerPublisher<visualization_msgs::msg::MarkerArray>("okvis_submap_mesh");
   pubPointsMatched_ =       threadedPublisher_->registerPublisher<sensor_msgs::msg::PointCloud2>("okvis_points_matched");
   pubPointsAlignment_ =     threadedPublisher_->registerPublisher<sensor_msgs::msg::PointCloud2>("okvis_points_alignment");
+  pubRaycastDebug_ =        threadedPublisher_->registerPublisher<visualization_msgs::msg::MarkerArray>("okvis_raycast_debug");
   pubOccupancyGrid_ =       threadedPublisher_->registerPublisher<nav_msgs::msg::OccupancyGrid>("okvis_occupancy_grid");
   pubSubmapBounds_ =        threadedPublisher_->registerPublisher<visualization_msgs::msg::MarkerArray>("okvis_submap_bounds");
   
@@ -77,8 +80,6 @@ void Publisher::setupNode(std::shared_ptr<rclcpp::Node> node)
   globalGridHeight_ = 2000;
   globalGridOrigin_ = Eigen::Vector2f(-50.0f, -50.0f);  // Centered at (0,0)
   globalOccupancyGrid_.resize(globalGridWidth_ * globalGridHeight_, -1);  // All unknown
-  LOG(INFO) << "Initialized global occupancy grid: " << globalGridWidth_ << "x" << globalGridHeight_ 
-            << " @ 0.05m resolution, origin: [" << globalGridOrigin_.x() << "," << globalGridOrigin_.y() << "]";
       
   // get the mesh, if there is one
   // where to get the mesh from
@@ -118,6 +119,11 @@ void Publisher::setupNode(std::shared_ptr<rclcpp::Node> node)
     LOG(INFO) << "no mesh found for visualisation, set ros param mesh_file, if desired";
     meshMsg_->mesh_resource = "";
   }
+  
+  // Register bounding box to 3D service
+  // Note: Service type will be defined by the package that contains the .srv file
+  // For now, we'll use a placeholder - the actual service type needs to match the package
+  LOG(INFO) << "Bounding box to 3D service will be registered when service package is available";
 }
 
 Publisher::~Publisher()
@@ -229,6 +235,12 @@ void Publisher::publishEstimatorUpdate(
   const State& state, const TrackingState & trackingState,
   std::shared_ptr<const AlignedMap<StateId, State>> updatedStates,
   std::shared_ptr<const MapPointVector> landmarks) {
+
+  // Store current state for raycasting service (thread-safe, write lock)
+  {
+    std::unique_lock<std::shared_mutex> lock(stateMutex_);
+    currentState_ = state;
+  }
 
   // forward to existing writer
   trajectoryOutput_.processState(state, trackingState, updatedStates, landmarks);
@@ -444,6 +456,13 @@ void Publisher::setupImageTopics(const okvis::cameras::NCameraSystem & nCameraSy
   }
   std::string name = "Top Debug View";
   pubImages_[name] = threadedImagePublisher_->registerPublisher<sensor_msgs::msg::Image>("top_debug_view");
+  
+  // Also store camera system for raycasting
+  setCameraSystem(nCameraSystem);
+}
+
+void Publisher::setCameraSystem(const okvis::cameras::NCameraSystem & nCameraSystem) {
+  nCameraSystem_ = std::make_shared<okvis::cameras::NCameraSystem>(nCameraSystem);
 }
 
 void Publisher::setMeshesPath(std::string meshesDir){
@@ -475,6 +494,18 @@ void Publisher::setupNetworkTopics(const std::string & topicName) {
 void Publisher::publishSubmapsAsCallback(std::unordered_map<uint64_t, okvis::kinematics::Transformation, std::hash<uint64_t>, std::equal_to<uint64_t>, Eigen::aligned_allocator<std::pair<const uint64_t, okvis::kinematics::Transformation>>> submapPoseLookup,
                                          std::unordered_map<uint64_t, std::shared_ptr<okvis::SupereightMapType>> submapLookup) 
 {
+  // Store submaps and poses for raycasting service (thread-safe, write lock)
+  {
+    std::unique_lock<std::shared_mutex> lock(submapDataMutex_);
+    // Copy element by element to handle different allocator types
+    submapPoseLookup_.clear();
+    submapPoseLookup_.reserve(submapPoseLookup.size());
+    for (const auto& [id, pose] : submapPoseLookup) {
+      submapPoseLookup_[id] = pose;
+    }
+    submapLookup_ = submapLookup;
+  }
+
   constexpr size_t n = okvis::SupereightMapType::SurfaceMesh::value_type::num_vertexes;
 
   std_msgs::msg::Header header;
@@ -872,6 +903,7 @@ size_t Publisher::updateGlobalGridFromSubmap(uint64_t submap_id,
                                               float robot_height_z,
                                               std::vector<int8_t>& global_grid)
 {
+  (void)submap_id; // Suppress unused parameter warning
   if (!submap.map) {
     return 0;
   }
@@ -945,8 +977,6 @@ void Publisher::extractSubmapOccupancyGrid(
     const se::Submap<okvis::SupereightMapType>& submap,
     float robot_height_z)
 {
-  LOG(INFO) << "Extracting occupancy grid from submap " << submap_id;
-  
   // IMPORTANT: aabb() returns bounds in MAP FRAME K (not world frame!)
   const Eigen::Array3f aabb_min_K = submap.map->aabb().min();
   const Eigen::Array3f aabb_max_K = submap.map->aabb().max();
@@ -966,12 +996,6 @@ void Publisher::extractSubmapOccupancyGrid(
   const float resolution = occupancy_grid_resolution_;
   const uint32_t width = static_cast<uint32_t>(std::ceil(size.x() / resolution));
   const uint32_t height = static_cast<uint32_t>(std::ceil(size.y() / resolution));
-  
-  LOG(INFO) << "  Submap bounds (map frame K): [" << aabb_min_K.x() << "," << aabb_min_K.y() << "," << aabb_min_K.z() 
-            << "] to [" << aabb_max_K.x() << "," << aabb_max_K.y() << "," << aabb_max_K.z() << "]";
-  LOG(INFO) << "  Submap bounds (world frame W): [" << aabb_min_W.x() << "," << aabb_min_W.y() << "," << aabb_min_W.z() 
-            << "] to [" << aabb_max_W.x() << "," << aabb_max_W.y() << "," << aabb_max_W.z() << "]";
-  LOG(INFO) << "  Grid size: " << width << "x" << height << " @ " << resolution << "m resolution";
   
   // Store grid with world frame origin and pose snapshot for loop closure
   SubmapOccupancyGrid grid;
@@ -1078,14 +1102,7 @@ void Publisher::extractSubmapOccupancyGrid(
             << (100.0f * near_surface_cells / total_queries) << "%)";
   
   if (valid_cells > 0) {
-    LOG(INFO) << "    Occupancy value range: [" << min_occ << ", " << max_occ << "]";
-    LOG(INFO) << "    Sample values: ";
-    std::stringstream ss;
-    for (size_t i = 0; i < sample_values.size(); ++i) {
-      ss << sample_values[i];
-      if (i < sample_values.size() - 1) ss << ", ";
-    }
-    LOG(INFO) << "      " << ss.str();
+    // Occupancy value range and sample values available but not logged
   }
   
   // Store the grid (positions will be transformed using T_WK during merge)
@@ -1099,14 +1116,9 @@ void Publisher::publishOccupancyGridAsCallback(
   // Start timing measurement
   const auto start_time = std::chrono::high_resolution_clock::now();
   
-  LOG(INFO) << "========== publishOccupancyGridAsCallback CALLED with " 
-            << seSubmapLookup.size() << " active submaps, " 
-            << submapOccupancyGrids_.size() << " stored grids ==========";
-  
   okvis::TimerSwitchable timer_total("OccupancyGrid: Total");
   
   // VISUALIZATION: Publish submap boundaries for debugging
-  LOG(INFO) << "Creating submap boundary markers for " << seSubmapLookup.size() << " submaps";
   auto marker_array_msg = std::make_shared<visualization_msgs::msg::MarkerArray>();
   int marker_id = 0;
   
@@ -1208,14 +1220,9 @@ void Publisher::publishOccupancyGridAsCallback(
     text_marker.text = "Submap " + std::to_string(submap_id);
     
     marker_array_msg->markers.push_back(text_marker);
-    
-    LOG(INFO) << "  Submap " << submap_id << " bounds: [" 
-              << xmin << "," << ymin << "," << zmin << "] to ["
-              << xmax << "," << ymax << "," << zmax << "]";
   }
   
   // Publish visualization
-  LOG(INFO) << "Publishing " << marker_array_msg->markers.size() << " markers to /okvis/okvis_submap_bounds";
   pubSubmapBounds_.publish(marker_array_msg);
   
   // Create the occupancy grid message
@@ -1238,17 +1245,10 @@ void Publisher::publishOccupancyGridAsCallback(
   grid_msg->info.origin.position.y = -occupancy_grid_height_dim_ / 2.0;
   grid_msg->info.origin.position.z = current_robot_height;
   grid_msg->info.origin.orientation.w = 1.0;
-  
-  LOG(INFO) << "Robot position (world): [" << t_WB.x() << ", " << t_WB.y() << ", " << t_WB.z() << "]";
-  LOG(INFO) << "Occupancy grid origin (world): [" << grid_msg->info.origin.position.x << ", " 
-            << grid_msg->info.origin.position.y << ", " << grid_msg->info.origin.position.z << "]";
-  LOG(INFO) << "Occupancy grid slice height (robot's current height): " << current_robot_height << "m";
 
   // Initialize or check global occupancy grid dimensions
   const size_t expected_grid_size = grid_msg->info.width * grid_msg->info.height;
   if (globalOccupancyGrid_.size() != expected_grid_size) {
-    LOG(INFO) << "Initializing global occupancy grid: " << grid_msg->info.width << "x" 
-              << grid_msg->info.height << " cells";
     globalOccupancyGrid_.resize(expected_grid_size, -1);  // All unknown
     globalGridWidth_ = grid_msg->info.width;
     globalGridHeight_ = grid_msg->info.height;
@@ -1281,19 +1281,16 @@ void Publisher::publishOccupancyGridAsCallback(
     // Always update the latest submap
     if (submap_id == latest_submap_id) {
       needs_update = true;
-      LOG(INFO) << "Submap " << submap_id << " needs update: latest submap";
     } else {
       // Check if pose has changed significantly
       auto it = lastMergedPoses_.find(submap_id);
       if (it == lastMergedPoses_.end()) {
         // New submap, needs update
         needs_update = true;
-        LOG(INFO) << "Submap " << submap_id << " needs update: new submap";
       } else {
         // Check if pose changed significantly (0.01m translation or 0.01rad rotation)
         if (poseChanged(it->second, submap.T_WK, 0.01f, 0.01f)) {
           needs_update = true;
-          LOG(INFO) << "Submap " << submap_id << " needs update: pose changed significantly";
         }
       }
     }
@@ -1302,8 +1299,6 @@ void Publisher::publishOccupancyGridAsCallback(
       submaps_to_update.push_back(submap_id);
     }
   }
-  
-  LOG(INFO) << "Updating " << submaps_to_update.size() << " out of " << seSubmapLookup.size() << " submaps";
   
   // Update global grid only for changed submaps
   size_t total_valid_cells = 0;
@@ -1316,7 +1311,6 @@ void Publisher::publishOccupancyGridAsCallback(
         grid_msg->info.resolution, current_robot_height,
         globalOccupancyGrid_);
     total_valid_cells += valid_cells;
-    LOG(INFO) << "  Submap " << submap_id << " contributed " << valid_cells << " valid cells";
     
     // Update pose tracking
     lastMergedPoses_[submap_id] = submap.T_WK;
@@ -1326,10 +1320,6 @@ void Publisher::publishOccupancyGridAsCallback(
   
   // Copy global grid to message for publishing
   grid_msg->data = globalOccupancyGrid_;
-  
-  LOG(INFO) << "OccupancyGrid Update Stats:";
-  LOG(INFO) << "  Submaps updated: " << submaps_to_update.size() << " out of " << seSubmapLookup.size();
-  LOG(INFO) << "  Total valid cells updated: " << total_valid_cells;
   
   // Count final grid statistics
   size_t final_occupied = 0;
@@ -1342,26 +1332,14 @@ void Publisher::publishOccupancyGridAsCallback(
     else final_free++;
   }
   
-  LOG(INFO) << "OccupancyGrid Final Statistics:";
-  LOG(INFO) << "  Occupied: " << final_occupied << " (" 
-            << (100.0f * final_occupied / grid_msg->data.size()) << "%)";
-  LOG(INFO) << "  Free: " << final_free << " (" 
-            << (100.0f * final_free / grid_msg->data.size()) << "%)";
-  LOG(INFO) << "  Unknown: " << final_unknown << " (" 
-            << (100.0f * final_unknown / grid_msg->data.size()) << "%)";
-  
   // Publish the grid
   pubOccupancyGrid_.publish(grid_msg);
   
   timer_total.stop();
   
-  // End timing measurement and log execution time
+  // End timing measurement
   const auto end_time = std::chrono::high_resolution_clock::now();
   const auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time);
-  const double execution_time_ms = duration.count() / 1000.0;
-  LOG(INFO) << "========== publishOccupancyGridAsCallback COMPLETED ==========";
-  LOG(INFO) << "Execution time: " << execution_time_ms << " ms (" 
-            << (execution_time_ms / 1000.0) << " seconds)";
 }
 
 void Publisher::publishAlignmentPointsAsCallback(const okvis::Time& timestamp, const okvis::kinematics::Transformation& T_WS,
@@ -1458,7 +1436,6 @@ void Publisher::republishMeshes()
     return;
   }
   else{
-    LOG(INFO) << "Re-Meshing " << submapSurfaceMesh_.size() << " meshes for text query";
   }
 
   constexpr size_t n = SupereightMapType::SurfaceMesh::value_type::num_vertexes;

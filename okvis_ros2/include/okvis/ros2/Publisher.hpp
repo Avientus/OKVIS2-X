@@ -47,6 +47,16 @@
 #include <sensor_msgs/msg/imu.hpp>
 #include <std_srvs/srv/set_bool.hpp>
 #include <mutex>
+#include <shared_mutex>
+#include <optional>
+// Note: Service header will be included in implementation file
+// Forward declaration for service
+namespace okvis_ros2 {
+namespace srv {
+struct BoundingBoxTo3D_Request;
+struct BoundingBoxTo3D_Response;
+}
+}
 
 #include <okvis/ViInterface.hpp>
 #include <okvis/kinematics/Transformation.hpp>
@@ -132,6 +142,12 @@ class Publisher
    * @param nCameraSystem Multi-camera sensor setup.
    */
   void setupImageTopics(const okvis::cameras::NCameraSystem & nCameraSystem);
+
+  /**
+   * @brief Set camera system for raycasting service
+   * @param nCameraSystem Multi-camera sensor setup.
+   */
+  void setCameraSystem(const okvis::cameras::NCameraSystem & nCameraSystem);
 
   /**
    * @brief Set up the topics.
@@ -233,6 +249,25 @@ class Publisher
   void publishRealTimePropagation(const okvis::Time& time, const Eigen::Vector3d& position, const Eigen::Quaterniond& orientation, 
                                   const Eigen::Vector3d& linear_velocity, const Eigen::Vector3d& angular_velocity);
 
+  /**
+   * @brief Service handler for bounding box to 3D position conversion
+   * @param request Service request with camera ID and bounding box
+   * @param response Service response with 3D position
+   */
+  template<typename ServiceT>
+  void handleBoundingBoxTo3D(
+      const std::shared_ptr<typename ServiceT::Request> request,
+      std::shared_ptr<typename ServiceT::Response> response);
+  
+  /**
+   * @brief Register the bounding box to 3D service
+   * Call this method from your node setup code after the service package is available
+   * Example: publisher.registerBoundingBoxTo3DService<your_package::srv::BoundingBoxTo3D>("bounding_box_to_3d");
+   * @param service_name Service name (default: "bounding_box_to_3d")
+   */
+  template<typename ServiceT>
+  void registerBoundingBoxTo3DService(const std::string& service_name = "bounding_box_to_3d");
+
   private:
 
   /// @name Node and subscriber related
@@ -266,6 +301,8 @@ class Publisher
   okvis::ThreadedPublisher::PublisherHandle<nav_msgs::msg::OccupancyGrid> pubOccupancyGrid_;
   /// \brief The publisher for submap boundary visualization.
   okvis::ThreadedPublisher::PublisherHandle<visualization_msgs::msg::MarkerArray> pubSubmapBounds_;
+  /// \brief The publisher for raycast visualization/debugging.
+  okvis::ThreadedPublisher::PublisherHandle<visualization_msgs::msg::MarkerArray> pubRaycastDebug_;
 
   /// \brief Image publishers.
   std::map<std::string, okvis::ThreadedPublisher::PublisherHandle<sensor_msgs::msg::Image>> pubImages_; ///< Image publisher map.
@@ -386,8 +423,22 @@ class Publisher
     Eigen::Array3f max;
   };
   std::unordered_map<uint64_t, SubmapBounds> submapBoundsCache_; ///< Cached AABB for each submap
+
+  // Raycasting service data (thread-safe storage)
+  // Using shared_mutex for reader-writer pattern: many readers (service calls), few writers (SLAM updates)
+  mutable std::shared_mutex submapDataMutex_; ///< Shared mutex for protecting submap data access (reader-writer)
+  std::unordered_map<uint64_t, okvis::kinematics::Transformation> submapPoseLookup_; ///< Submap poses (world frame)
+  std::unordered_map<uint64_t, std::shared_ptr<okvis::SupereightMapType>> submapLookup_; ///< Submap octrees
+  mutable std::shared_mutex stateMutex_; ///< Shared mutex for protecting state data access (reader-writer)
+  std::optional<State> currentState_; ///< Current state (T_WS, timestamp, etc.)
+  std::shared_ptr<okvis::cameras::NCameraSystem> nCameraSystem_; ///< Camera system for raycasting
+  
+  rclcpp::ServiceBase::SharedPtr boundingBoxTo3DService_; ///< Service handle
 };
 
-}
+}  // namespace okvis
+
+// Template implementations (must be in header for templates)
+#include "impl/PublisherBoundingBoxTo3D_impl.hpp"
 
 #endif /* INCLUDE_OKVIS_ROS2_PUBLISHER_HPP_ */
