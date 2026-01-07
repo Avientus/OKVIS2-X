@@ -495,15 +495,43 @@ void Publisher::publishSubmapsAsCallback(std::unordered_map<uint64_t, okvis::kin
                                          std::unordered_map<uint64_t, std::shared_ptr<okvis::SupereightMapType>> submapLookup) 
 {
   // Store submaps and poses for raycasting service (thread-safe, write lock)
+  // IMPORTANT: Merge new submaps instead of clearing to preserve historical submaps
+  // 
+  // Storage scales with number of submaps:
+  // - submapPoseLookup_: O(N) poses (Transformations, ~48 bytes each)
+  // - submapLookup_: O(N) shared_ptrs (8 bytes each, just reference counting)
+  // - Actual submap data (octrees) are NOT duplicated - we only store shared_ptrs
+  //   The actual data lives in SubmappingInterface::seSubmapLookup_
   {
     std::unique_lock<std::shared_mutex> lock(submapDataMutex_);
-    // Copy element by element to handle different allocator types
-    submapPoseLookup_.clear();
-    submapPoseLookup_.reserve(submapPoseLookup.size());
+    
+    // Log before merging
+    const size_t existing_count = submapPoseLookup_.size();
+    const size_t incoming_count = submapPoseLookup.size();
+    size_t new_count = 0;
+    size_t updated_count = 0;
+    
+    // Update/merge new submaps into existing lookup (don't clear - preserve history)
     for (const auto& [id, pose] : submapPoseLookup) {
+      if (submapPoseLookup_.find(id) == submapPoseLookup_.end()) {
+        new_count++;
+      } else {
+        updated_count++;
+      }
       submapPoseLookup_[id] = pose;
     }
-    submapLookup_ = submapLookup;
+    
+    // Update/merge submap pointers (shared_ptrs are cheap to copy, just reference counting)
+    for (const auto& [id, submap] : submapLookup) {
+      submapLookup_[id] = submap;
+    }
+    
+    // Log after merging
+    const size_t total_count = submapPoseLookup_.size();
+    LOG(INFO) << "Submap storage update: existing=" << existing_count 
+              << ", incoming=" << incoming_count 
+              << " (new=" << new_count << ", updated=" << updated_count << ")"
+              << ", total after merge=" << total_count;
   }
 
   constexpr size_t n = okvis::SupereightMapType::SurfaceMesh::value_type::num_vertexes;

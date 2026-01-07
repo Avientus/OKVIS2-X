@@ -8,7 +8,7 @@
     <arg name="stereo_network" default="false"/>
     <arg name="depth_fusion" default="false"/>
     <arg name="csv_path" default="/tmp/"/>
-    <arg name="mesh_cutoff_z" default="2.5"/>
+    <arg name="mesh_cutoff_z" default="15.0"/>
     <arg name="save_submap_meshes" default="false"/>
     <arg name="rviz" default="true"/>
     <arg name="mesh" default="realsense.dae"/>

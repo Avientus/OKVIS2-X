@@ -253,20 +253,19 @@ class Publisher
    * @brief Service handler for bounding box to 3D position conversion
    * @param request Service request with camera ID and bounding box
    * @param response Service response with 3D position
+   * Implementation is in impl/PublisherBoundingBoxTo3D_impl.hpp
    */
-  template<typename ServiceT>
-  void handleBoundingBoxTo3D(
-      const std::shared_ptr<typename ServiceT::Request> request,
-      std::shared_ptr<typename ServiceT::Response> response);
   
   /**
    * @brief Register the bounding box to 3D service
    * Call this method from your node setup code after the service package is available
    * Example: publisher.registerBoundingBoxTo3DService<your_package::srv::BoundingBoxTo3D>("bounding_box_to_3d");
    * @param service_name Service name (default: "bounding_box_to_3d")
+   * Implementation is in impl/PublisherBoundingBoxTo3D_impl.hpp
    */
-  template<typename ServiceT>
-  void registerBoundingBoxTo3DService(const std::string& service_name = "bounding_box_to_3d");
+
+// Template implementations (must be in header for templates)
+#include "impl/PublisherBoundingBoxTo3D_impl.hpp"
 
   private:
 
@@ -437,8 +436,5 @@ class Publisher
 };
 
 }  // namespace okvis
-
-// Template implementations (must be in header for templates)
-#include "impl/PublisherBoundingBoxTo3D_impl.hpp"
 
 #endif /* INCLUDE_OKVIS_ROS2_PUBLISHER_HPP_ */

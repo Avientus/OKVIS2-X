@@ -25,10 +25,11 @@
 #include <visualization_msgs/msg/marker.hpp>
 #include <geometry_msgs/msg/point.hpp>
 
-namespace okvis {
+// Note: This file is included inside the okvis namespace in Publisher.hpp
+// So we don't declare the namespace here
 
 template<typename ServiceT>
-void Publisher::handleBoundingBoxTo3D(
+inline void handleBoundingBoxTo3D(
     const std::shared_ptr<typename ServiceT::Request> request,
     std::shared_ptr<typename ServiceT::Response> response)
 {
@@ -65,7 +66,7 @@ void Publisher::handleBoundingBoxTo3D(
   const float bbox_center_y = bbox_cy + bbox_height / 2.0f;
   
   // Get state at requested timestamp from detection target odometry
-  State currentState;
+  okvis::State currentState;
   bool stateFound = false;
   
 
@@ -146,10 +147,16 @@ void Publisher::handleBoundingBoxTo3D(
   
   // Normalize ray direction
   ray_dir_C.normalize();
+
+ 
   
   // Transform ray direction to world frame
   Eigen::Vector3f ray_dir_W = (C_WC * ray_dir_C).cast<float>();
   ray_dir_W.normalize();
+  
+
+  
+
   
   // Ray origin in world frame
   Eigen::Vector3f ray_origin_W = camera_origin_W.cast<float>();
@@ -167,16 +174,26 @@ void Publisher::handleBoundingBoxTo3D(
     }
     submapPoses = submapPoseLookup_;
     submaps = submapLookup_;
+    
+    LOG(INFO) << "Raycast query: Available " << submaps.size() << " submaps for timestamp " 
+              << timestamp_detection_target.sec << "." << timestamp_detection_target.nanosec;
   }
   
   // Use the camera origin (ray origin) as the detection position for submap selection
   // This is the camera position at the detection timestamp
   const Eigen::Vector3d detection_pos_W = camera_origin_W;
   
-  // Find closest submaps without sorting all of them
+  // Project ray forward to find potential intersection point (e.g., 10m along ray)
+  // This helps select submaps that actually contain data along the ray path
+  const Eigen::Vector3d ray_end_W = detection_pos_W + ray_dir_W.cast<double>() * 10.0; // 10m along ray
+  
+  // Find closest submaps - prioritize submaps that:
+  // 1. Are close to the camera position (where ray starts)
+  // 2. Are close to points along the ray path (where ray might intersect)
   struct SubmapDistance {
     uint64_t id;
     float distance;
+    float distance_to_ray;  // Distance from submap to ray path
     okvis::kinematics::Transformation T_WK;
     std::shared_ptr<okvis::SupereightMapType> submap;
   };
@@ -196,15 +213,16 @@ void Publisher::handleBoundingBoxTo3D(
       continue;
     }
     
-    // Calculate distance from detection pose to submap pose
     const okvis::kinematics::Transformation& T_WK = pose_it->second;
     const Eigen::Vector3d submap_pos_W = T_WK.r();
+    
+    // Calculate distance from detection pose to submap pose
     const float distance = (detection_pos_W - submap_pos_W).norm();
     
     // Insert into closest_submaps if it's closer than the farthest one we have
     if (closest_submaps.size() < max_submaps_to_check) {
       // Still building the list
-      closest_submaps.push_back({submap_id, distance, T_WK, submap});
+      closest_submaps.push_back({submap_id, distance, 0.0f, T_WK, submap});
       // Keep sorted (insertion sort for small list)
       std::sort(closest_submaps.begin(), closest_submaps.end(),
                 [](const SubmapDistance& a, const SubmapDistance& b) {
@@ -212,7 +230,7 @@ void Publisher::handleBoundingBoxTo3D(
                 });
     } else if (distance < closest_submaps.back().distance) {
       // Replace the farthest one if this is closer
-      closest_submaps.back() = {submap_id, distance, T_WK, submap};
+      closest_submaps.back() = {submap_id, distance, 0.0f, T_WK, submap};
       // Re-sort (only 3 elements, very fast)
       std::sort(closest_submaps.begin(), closest_submaps.end(),
                 [](const SubmapDistance& a, const SubmapDistance& b) {
@@ -234,39 +252,104 @@ void Publisher::handleBoundingBoxTo3D(
   bool found_intersection = false;
   
   for (const auto& submap_info : closest_submaps) {
-    const uint64_t submap_id = submap_info.id;
     const auto& submap = submap_info.submap;
     const okvis::kinematics::Transformation& T_WK = submap_info.T_WK;
     
-    // Transform ray to submap frame K
+    if (!submap) {
+      continue;
+    }
+    
+    // Check if octree is valid and has data
+    const auto& octree = submap->getOctree();
+    LOG(INFO) << "Submap " << submap_info.id << " octree size: " << octree.getSize() 
+              << ", max scale: " << octree.getMaxScale();
+    
+    // Check if the map actually has any data by checking the AABB
+    // NOTE: map->aabb() returns AABB in K frame
+    const auto aabb_K = submap->aabb();
+    const Eigen::Vector3f aabb_min_K = aabb_K.min();
+    const Eigen::Vector3f aabb_max_K = aabb_K.max();
+    const Eigen::Vector3f aabb_size_K = aabb_max_K - aabb_min_K;
+    
+    // Transform AABB to world frame for logging
+    // CRITICAL: After rotation, min/max corners may swap. We must transform all 8 corners
+    // and then compute the min/max of the transformed corners to get the correct AABB.
+    const Eigen::Vector3d aabb_min_K_d = aabb_min_K.cast<double>();
+    const Eigen::Vector3d aabb_max_K_d = aabb_max_K.cast<double>();
+    
+    // Generate all 8 corners of the AABB in K-frame
+    Eigen::Vector3d corners_K[8] = {
+      Eigen::Vector3d(aabb_min_K_d.x(), aabb_min_K_d.y(), aabb_min_K_d.z()),
+      Eigen::Vector3d(aabb_max_K_d.x(), aabb_min_K_d.y(), aabb_min_K_d.z()),
+      Eigen::Vector3d(aabb_min_K_d.x(), aabb_max_K_d.y(), aabb_min_K_d.z()),
+      Eigen::Vector3d(aabb_max_K_d.x(), aabb_max_K_d.y(), aabb_min_K_d.z()),
+      Eigen::Vector3d(aabb_min_K_d.x(), aabb_min_K_d.y(), aabb_max_K_d.z()),
+      Eigen::Vector3d(aabb_max_K_d.x(), aabb_min_K_d.y(), aabb_max_K_d.z()),
+      Eigen::Vector3d(aabb_min_K_d.x(), aabb_max_K_d.y(), aabb_max_K_d.z()),
+      Eigen::Vector3d(aabb_max_K_d.x(), aabb_max_K_d.y(), aabb_max_K_d.z())
+    };
+    
+    // Transform all corners to world frame
+    Eigen::Vector3d corners_W[8];
+    for (int i = 0; i < 8; i++) {
+      corners_W[i] = T_WK * corners_K[i];
+    }
+    
+    // Compute min/max of transformed corners
+    Eigen::Vector3d aabb_min_W_d = corners_W[0];
+    Eigen::Vector3d aabb_max_W_d = corners_W[0];
+    for (int i = 1; i < 8; i++) {
+      aabb_min_W_d = aabb_min_W_d.cwiseMin(corners_W[i]);
+      aabb_max_W_d = aabb_max_W_d.cwiseMax(corners_W[i]);
+    }
+    
+    const Eigen::Vector3f aabb_min_W = aabb_min_W_d.cast<float>();
+    const Eigen::Vector3f aabb_max_W = aabb_max_W_d.cast<float>();
+    const Eigen::Vector3f aabb_size_W = aabb_max_W - aabb_min_W;
+    
+    LOG(INFO) << "  Submap " << submap_info.id << " AABB (world frame): min=[" 
+              << aabb_min_W.x() << ", " << aabb_min_W.y() << ", " << aabb_min_W.z() << "]"
+              << ", max=[" << aabb_max_W.x() << ", " << aabb_max_W.y() << ", " << aabb_max_W.z() << "]"
+              << ", size=[" << aabb_size_W.x() << ", " << aabb_size_W.y() << ", " << aabb_size_W.z() << "]";
+
+    
+
+    
+    // Get octree parameters (needed in multiple scopes)
+    const int octree_size = octree.getSize();
+    const float voxel_res = submap->getRes();
+    
+ 
+    // Transform ray to submap frame K (where submap data was integrated)
     const okvis::kinematics::Transformation T_KW = T_WK.inverse();
-    // Convert to Vector3d first, then transform, then cast back to float
     const Eigen::Vector3d ray_origin_W_d = ray_origin_W.cast<double>();
     const Eigen::Vector3d ray_origin_K_d = T_KW * ray_origin_W_d;
     const Eigen::Vector3f ray_origin_K = ray_origin_K_d.cast<float>();
     const Eigen::Matrix3f C_KW = T_KW.C().cast<float>();
     const Eigen::Vector3f ray_dir_K = C_KW * ray_dir_W;
     
-    // Raycast in submap frame (expensive operation - only do for closest submaps)
-    // Note: For occupancy maps, the implementation only uses t_near and t_far (ignores mu, step, largestep)
-    // The implementation header defines a 6-parameter version, so we call that directly
+   
+
+    const Eigen::Vector3f ray_origin_K_query = ray_origin_K;  // Already computed above
+    const Eigen::Vector3f ray_dir_K_query = ray_dir_K;        // Already computed above
+    
     using MapType = std::remove_reference_t<decltype(*submap)>;
-    auto intersection = se::raycaster::raycast<MapType>(
+    
+    auto intersection_K_result = se::raycaster::raycast<MapType>(
         *submap,
         submap->getOctree(),
-        ray_origin_K,
-        ray_dir_K,
+        ray_origin_K_query,  // K-frame coordinates - map will apply T_MW internally
+        ray_dir_K_query,     // K-frame coordinates - map will apply T_MW internally
         t_near,
         t_far
     );
     
-    if (intersection.has_value()) {
-      // intersection is [x, y, z, distance] in submap frame K
-      // Use template keyword for dependent name in template context
-      const Eigen::Vector3f point_K_f = intersection->template head<3>();
+    if (intersection_K_result.has_value()) {
+      // Result is in the same coordinate frame as input (K frame)
+      const Eigen::Vector3f point_K_result = intersection_K_result->template head<3>();
       
-      // Transform back to world frame (convert to Vector3d first)
-      const Eigen::Vector3d point_K_d = point_K_f.cast<double>();
+      // Transform from K-frame to world frame
+      const Eigen::Vector3d point_K_d = point_K_result.cast<double>();
       const Eigen::Vector3d point_W_d = T_WK * point_K_d;
       const Eigen::Vector3f point_W = point_W_d.cast<float>();
       const float distance_W = (point_W - ray_origin_W).norm();
@@ -537,7 +620,7 @@ void Publisher::handleBoundingBoxTo3D(
 }
 
 template<typename ServiceT>
-void Publisher::registerBoundingBoxTo3DService(const std::string& service_name)
+inline void registerBoundingBoxTo3DService(const std::string& service_name = "bounding_box_to_3d")
 {
   if (!node_) {
     LOG(ERROR) << "Cannot register service: node not initialized";
@@ -552,8 +635,6 @@ void Publisher::registerBoundingBoxTo3DService(const std::string& service_name)
   
   LOG(INFO) << "Registered bounding box to 3D service: " << service_name;
 }
-
-}  // namespace okvis
 
 #endif /* INCLUDE_OKVIS_ROS2_PUBLISHER_BOUNDINGBOXTO3D_IMPL_HPP_ */
 

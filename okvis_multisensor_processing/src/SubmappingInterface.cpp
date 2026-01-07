@@ -948,11 +948,14 @@ namespace okvis {
               AlignedUnorderedMap<uint64_t, Transformation> submapPoses;
               std::unordered_map<uint64_t, std::shared_ptr<SupereightMapType>> submaps;
 
-              for(auto it: updated_maps_){
-                if(it == prevKeyframeId_) continue;
-                okvis::kinematics::Transformation submapPose(seSubmapLookup_[it].T_WK.matrix().cast<double>());
-                submapPoses[it] = submapPose;
-                submaps[it] = seSubmapLookup_[it].map;
+              // CRITICAL FIX: Send ALL submaps, not just updated ones, so historical queries work
+              // Only skip the current active submap (prevKeyframeId_) as it's still being built
+              for(const auto& [id, submap] : seSubmapLookup_){
+                if(id == prevKeyframeId_) continue; // Skip current active submap (still being built)
+                if(!submap.map) continue; // Skip if map pointer is null
+                okvis::kinematics::Transformation submapPose(submap.T_WK.matrix().cast<double>());
+                submapPoses[id] = submapPose;
+                submaps[id] = submap.map;
               }
               updated_maps_.clear();
               

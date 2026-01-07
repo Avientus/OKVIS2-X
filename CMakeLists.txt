@@ -25,7 +25,7 @@ option (DO_TIMING
 option (BUILD_SHARED_LIBS
         "Whether to build okvis as a shared library" OFF)
 
-option (USE_COLIDMAP "Whether to build okvis supportin colour and object's id 'for language based OKVIS' or regular one" ON)
+option (USE_COLIDMAP "Whether to build okvis supportin colour and object's id 'for language based OKVIS' or regular one" OFF)
 
 set(OKVIS_CXX_STANDARD 17)
 set(OKVIS_PUBLIC_CXX_FLAGS)
