@@ -73,7 +73,8 @@ protected:
 
   struct VisualizationData {
     StereoMeasurement frame;
-    cv::Mat depthImage;
+    cv::Mat depthImage;  // Visualization (colorized)
+    cv::Mat rawDepthImage;  // Raw depth in meters (CV_32FC1)
     cv::Mat sigmaImage;
   };
 
