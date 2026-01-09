@@ -109,7 +109,10 @@ void Stereo2DepthProcessor::display(std::map<std::string, cv::Mat> &images) {
   if(visualisationsQueue_.PopNonBlocking(&vis_data)) {
     images["leftImage"] = vis_data.frame.measurement.leftImage;
     images["rightImage"] = vis_data.frame.measurement.rightImage;
-    images["stereoDepth"] = vis_data.depthImage;
+    images["stereoDepth"] = vis_data.depthImage;  // Visualization
+    if(!vis_data.rawDepthImage.empty()) {
+      images["stereoDepthRaw"] = vis_data.rawDepthImage;  // Raw depth in meters
+    }
     if(!vis_data.sigmaImage.empty()) {
       images["stereoSigma"] = vis_data.sigmaImage;
     }
@@ -210,7 +213,8 @@ void Stereo2DepthProcessor::processStereoNetwork(std::map<size_t, std::vector<ok
   frame.timeStamp = frame0.timeStamp;
   VisualizationData visData;
   visData.frame = frame;
-  visData.depthImage = visMatColored;
+  visData.depthImage = visMatColored;  // Visualization (colorized)
+  visData.rawDepthImage = frame0.measurement.depthImage.clone();  // Raw depth in meters
   visData.sigmaImage = visSigmaMatColored;
   visualisationsQueue_.PushNonBlockingDroppingIfFull(visData, 1);
 

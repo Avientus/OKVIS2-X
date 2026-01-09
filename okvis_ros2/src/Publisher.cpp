@@ -24,6 +24,7 @@
 #include <tf2_eigen/tf2_eigen.hpp>
 #include <tf2_geometry_msgs/tf2_geometry_msgs.hpp>
 #include <pcl_conversions/pcl_conversions.h>
+#include <sensor_msgs/image_encodings.hpp>
 #include <chrono>
 
 #include <okvis/FrameTypedefs.hpp>
@@ -452,8 +453,19 @@ void Publisher::setMeshesPath(std::string meshesDir){
 
 bool Publisher::publishImages(const std::map<std::string, cv::Mat>& images) const {
   for(const auto & image : images) {
-    sensor_msgs::msg::Image::SharedPtr msg
-      = cv_bridge::CvImage(std_msgs::msg::Header(), "bgr8", image.second).toImageMsg();
+    sensor_msgs::msg::Image::SharedPtr msg;
+    
+    // Check if this is the raw depth image (stereoDepthRaw with float type)
+    if(image.first == "stereoDepthRaw" && image.second.type() == CV_32FC1) {
+      // Publish raw depth with proper encoding (32-bit float, single channel)
+      msg = cv_bridge::CvImage(std_msgs::msg::Header(), 
+                               sensor_msgs::image_encodings::TYPE_32FC1, 
+                               image.second).toImageMsg();
+    } else {
+      // Default: bgr8 for visualization images
+      msg = cv_bridge::CvImage(std_msgs::msg::Header(), "bgr8", image.second).toImageMsg();
+    }
+    
     const auto & pubIter = pubImages_.find(image.first);
     if(pubIter == pubImages_.end()) {
       continue;
@@ -467,6 +479,9 @@ void Publisher::setupNetworkTopics(const std::string & topicName) {
   // TODO: properly set topic names
   std::string name = topicName + "Depth";
   pubImages_[name] = threadedImagePublisher_->registerPublisher<sensor_msgs::msg::Image>("network_depth");
+
+  name = topicName + "DepthRaw";
+  pubImages_[name] = threadedImagePublisher_->registerPublisher<sensor_msgs::msg::Image>("network_depth_raw");
 
   name = topicName + "Sigma";
   pubImages_[name] = threadedImagePublisher_->registerPublisher<sensor_msgs::msg::Image>("network_sigma");
