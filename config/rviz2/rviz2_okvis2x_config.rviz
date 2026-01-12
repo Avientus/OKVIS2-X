@@ -195,6 +195,19 @@ Visualization Manager:
         Reliability Policy: Reliable
         Value: /okvis/okvis_mesh
       Value: true
+    - Class: rviz_default_plugins/Marker
+      Enabled: true
+      Name: Velocity Arrow
+      Namespaces:
+        velocity_arrow: true
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        Filter size: 10
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /imu/cmd_vel_arrow
+      Value: true
     - Class: rviz_default_plugins/MarkerArray
       Enabled: true
       Name: Submap Mesh
