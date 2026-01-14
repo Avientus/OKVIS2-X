@@ -47,7 +47,7 @@ camera_parameters:
     fov_scale: 1.0 # Divisor for new focal length which is only used when fisheye stereo rectification for dense mapping.
 
 imu_parameters:
-    use: true
+    use: false
     a_max: 163.84 # acceleration saturation [m/s^2]
     g_max: 5.72 # gyro saturation [rad/s]
     sigma_g_c: 6.519797189220827e-04
