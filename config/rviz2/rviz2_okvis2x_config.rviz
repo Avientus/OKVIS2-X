@@ -197,6 +197,19 @@ Visualization Manager:
       Value: true
     - Class: rviz_default_plugins/MarkerArray
       Enabled: true
+      Name: Velocity Arrows
+      Namespaces:
+        linear_velocity_arrow: true
+        angular_velocity_arrow: true
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /imu/cmd_vel_arrow
+      Value: true
+    - Class: rviz_default_plugins/MarkerArray
+      Enabled: true
       Name: Submap Mesh
       Namespaces:
         submaps: true

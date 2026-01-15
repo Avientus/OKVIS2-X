@@ -16,11 +16,16 @@
 #include <okvis/ros2/Publisher.hpp>
 #include <se/map/raycaster.hpp>
 #include <se/map/impl/raycaster_impl.hpp>
+#include <se/map/octree/visitor.hpp>
+#include <se/map/data.hpp>
 #include <okvis/cameras/CameraBase.hpp>
 #include <glog/logging.h>
 #include <shared_mutex>
 #include <vector>
 #include <algorithm>
+#include <cmath>
+#include <iomanip>
+#include <limits>
 #include <visualization_msgs/msg/marker_array.hpp>
 #include <visualization_msgs/msg/marker.hpp>
 #include <geometry_msgs/msg/point.hpp>
@@ -175,8 +180,6 @@ inline void handleBoundingBoxTo3D(
     submapPoses = submapPoseLookup_;
     submaps = submapLookup_;
     
-    LOG(INFO) << "Raycast query: Available " << submaps.size() << " submaps for timestamp " 
-              << timestamp_detection_target.sec << "." << timestamp_detection_target.nanosec;
   }
   
   // Use the camera origin (ray origin) as the detection position for submap selection
@@ -246,6 +249,144 @@ inline void handleBoundingBoxTo3D(
   const float step = 0.1f;  // Step size for raycasting (1cm)
   const float largestep = 0.5f;  // Large step size
   
+  // === DEBUG: Log occupied voxels and test multiple rays ===
+  const float debug_range = 10.0f;  // 10m range
+  const Eigen::Vector3d detection_pos_W_d = detection_pos_W.cast<double>();
+  
+  // 1. Log occupied voxels within range
+  std::vector<std::pair<uint64_t, Eigen::Vector3f>> occupied_voxels_W;
+  for (const auto& submap_info : closest_submaps) {
+    const auto& submap = submap_info.submap;
+    const okvis::kinematics::Transformation& T_WK = submap_info.T_WK;
+    if (!submap) continue;
+    
+    const auto& octree = submap->getOctree();
+    const auto aabb_K = submap->aabb();
+    const Eigen::Vector3f aabb_min_K = aabb_K.min();
+    const Eigen::Vector3f aabb_max_K = aabb_K.max();
+    const float voxel_res = submap->getRes();
+    const okvis::kinematics::Transformation T_KW = T_WK.inverse();
+    
+    // Convert AABB bounds from K-frame to voxel coordinates
+    Eigen::Vector3i voxel_min, voxel_max;
+    submap->template pointToVoxel<se::Safe::Off>(aabb_min_K, voxel_min);
+    submap->template pointToVoxel<se::Safe::Off>(aabb_max_K, voxel_max);
+    
+    // Iterate through voxels in AABB
+    const int x_min = voxel_min.x();
+    const int x_max = voxel_max.x();
+    const int y_min = voxel_min.y();
+    const int y_max = voxel_max.y();
+    const int z_min = voxel_min.z();
+    const int z_max = voxel_max.z();
+    
+    int occupied_count = 0;
+    for (int x = x_min; x <= x_max; x += 2) {  // Sample every 2nd voxel for speed
+      for (int y = y_min; y <= y_max; y += 2) {
+        for (int z = z_min; z <= z_max; z += 2) {
+          Eigen::Vector3i voxel_coord(x, y, z);
+          auto data = se::visitor::getData(octree, voxel_coord);
+          if (se::is_valid(data)) {
+            se::field_t occ = se::get_field(data);
+            if (occ > 0.0f) {  // Occupied
+              // Convert voxel coord to K-frame point (W frame for submap is K frame)
+              Eigen::Vector3f point_K;
+              submap->voxelToPoint(voxel_coord, point_K);
+              // Transform to world frame
+              Eigen::Vector3d point_K_d = point_K.cast<double>();
+              Eigen::Vector3d point_W_d = T_WK * point_K_d;
+              Eigen::Vector3f point_W = point_W_d.cast<float>();
+              
+              // Check if within range
+              float dist = (point_W - detection_pos_W.cast<float>()).norm();
+              if (dist <= debug_range) {
+                occupied_voxels_W.push_back({submap_info.id, point_W});
+                occupied_count++;
+              }
+            }
+          }
+        }
+      }
+    }
+    LOG(INFO) << "S" << submap_info.id << ": " << occupied_count << " occupied voxels within " << debug_range << "m";
+  }
+  
+  LOG(INFO) << "Total occupied voxels: " << occupied_voxels_W.size();
+  
+  // 2. Test multiple rays in all directions
+  const int num_rays = 100;  // Adjust as needed
+  std::vector<std::pair<Eigen::Vector3f, bool>> ray_results;  // (direction, hit)
+  ray_results.reserve(num_rays);
+  
+  // Generate rays in sphere pattern
+  constexpr float PI = 3.14159265358979323846f;
+  for (int i = 0; i < num_rays; ++i) {
+    // Uniform sphere sampling
+    float theta = 2.0f * PI * (i % 20) / 20.0f;  // Azimuth
+    float phi = PI * ((i / 20) % 5) / 5.0f;      // Elevation
+    if (phi == 0.0f) phi = 0.01f;  // Avoid zero
+    
+    Eigen::Vector3f test_dir_W(
+      std::sin(phi) * std::cos(theta),
+      std::sin(phi) * std::sin(theta),
+      std::cos(phi)
+    );
+    test_dir_W.normalize();
+    
+    // Test raycast in each submap
+    bool hit = false;
+    for (const auto& submap_info : closest_submaps) {
+      const auto& submap = submap_info.submap;
+      const okvis::kinematics::Transformation& T_WK = submap_info.T_WK;
+      if (!submap) continue;
+      
+      const okvis::kinematics::Transformation T_KW = T_WK.inverse();
+      const Eigen::Vector3d ray_origin_W_d = ray_origin_W.cast<double>();
+      const Eigen::Vector3d ray_origin_K_d = T_KW * ray_origin_W_d;
+      const Eigen::Vector3f ray_origin_K = ray_origin_K_d.cast<float>();
+      const Eigen::Matrix3f C_KW = T_KW.C().cast<float>();
+      const Eigen::Vector3f ray_dir_K = C_KW * test_dir_W;
+      
+      using MapType = std::remove_reference_t<decltype(*submap)>;
+      auto result = se::raycaster::raycast<MapType>(
+        *submap, submap->getOctree(), ray_origin_K, ray_dir_K, t_near, t_far);
+      
+      if (result.has_value()) {
+        hit = true;
+        break;
+      }
+    }
+    ray_results.push_back({test_dir_W, hit});
+  }
+  
+  // Log results concisely
+  int hits = 0;
+  for (const auto& [dir, hit] : ray_results) {
+    if (hit) hits++;
+  }
+  LOG(INFO) << "Ray test: " << hits << "/" << num_rays << " rays hit";
+  
+  // Log sample of occupied voxel positions (first 20)
+  LOG(INFO) << "Occupied voxels (first 200):";
+  for (size_t i = 0; i < std::min(occupied_voxels_W.size(), size_t(500)); ++i) {
+    const auto& [submap_id, pos] = occupied_voxels_W[i];
+    float dist = (pos - detection_pos_W.cast<float>()).norm();
+    LOG(INFO) << "  S" << submap_id << ": [" << std::fixed << std::setprecision(2) 
+              << pos.x() << "," << pos.y() << "," << pos.z() << "] d=" << dist;
+  }
+  
+  // Log sample of ray directions that hit (first 100)
+  int hit_count = 0;
+  LOG(INFO) << "Rays that hit (first 10):";
+  for (const auto& [dir, hit] : ray_results) {
+    if (hit && hit_count < 100) {
+      LOG(INFO) << "  dir=[" << std::fixed << std::setprecision(3)
+                << dir.x() << "," << dir.y() << "," << dir.z() << "]";
+      hit_count++;
+    }
+  }
+  // === END DEBUG ===
+  
   // Try raycasting through closest submaps (only the ones we found)
   std::optional<Eigen::Vector4f> best_intersection;
   float best_distance = std::numeric_limits<float>::max();
@@ -307,10 +448,6 @@ inline void handleBoundingBoxTo3D(
     const Eigen::Vector3f aabb_max_W = aabb_max_W_d.cast<float>();
     const Eigen::Vector3f aabb_size_W = aabb_max_W - aabb_min_W;
     
-    LOG(INFO) << "  Submap " << submap_info.id << " AABB (world frame): min=[" 
-              << aabb_min_W.x() << ", " << aabb_min_W.y() << ", " << aabb_min_W.z() << "]"
-              << ", max=[" << aabb_max_W.x() << ", " << aabb_max_W.y() << ", " << aabb_max_W.z() << "]"
-              << ", size=[" << aabb_size_W.x() << ", " << aabb_size_W.y() << ", " << aabb_size_W.z() << "]";
 
     
 
