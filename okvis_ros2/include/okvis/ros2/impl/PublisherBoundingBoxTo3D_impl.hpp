@@ -281,14 +281,24 @@ inline void handleBoundingBoxTo3D(
     const int z_max = voxel_max.z();
     
     int occupied_count = 0;
-    for (int x = x_min; x <= x_max; x += 2) {  // Sample every 2nd voxel for speed
-      for (int y = y_min; y <= y_max; y += 2) {
-        for (int z = z_min; z <= z_max; z += 2) {
+    int valid_count = 0;
+    float min_occ = std::numeric_limits<float>::max();
+    float max_occ = std::numeric_limits<float>::lowest();
+    const float surface_threshold = 0.2f;  // TSDF surface threshold
+    
+    for (int x = x_min; x <= x_max; x += 1) {  // Sample every voxel
+      for (int y = y_min; y <= y_max; y += 1) {
+        for (int z = z_min; z <= z_max; z += 1) {
           Eigen::Vector3i voxel_coord(x, y, z);
           auto data = se::visitor::getData(octree, voxel_coord);
           if (se::is_valid(data)) {
+            valid_count++;
             se::field_t occ = se::get_field(data);
-            if (occ > 0.0f) {  // Occupied
+            min_occ = std::min(min_occ, occ);
+            max_occ = std::max(max_occ, occ);
+            
+            // TSDF: abs(occ) < threshold = surface (occupied), occ < -threshold = behind surface
+            if (std::abs(occ) < surface_threshold || occ < -surface_threshold) {
               // Convert voxel coord to K-frame point (W frame for submap is K frame)
               Eigen::Vector3f point_K;
               submap->voxelToPoint(voxel_coord, point_K);
@@ -308,14 +318,20 @@ inline void handleBoundingBoxTo3D(
         }
       }
     }
-    LOG(INFO) << "S" << submap_info.id << ": " << occupied_count << " occupied voxels within " << debug_range << "m";
+    LOG(INFO) << "S" << submap_info.id << ": " << occupied_count << " occupied voxels within " << debug_range << "m"
+              << " (valid=" << valid_count << ", occ_range=[" << min_occ << "," << max_occ << "])";
   }
   
   LOG(INFO) << "Total occupied voxels: " << occupied_voxels_W.size();
   
   // 2. Test multiple rays in all directions
   const int num_rays = 100;  // Adjust as needed
-  std::vector<std::pair<Eigen::Vector3f, bool>> ray_results;  // (direction, hit)
+  struct RayResult {
+    Eigen::Vector3f direction;
+    bool hit;
+    float distance;  // Distance to hit (or t_far if no hit)
+  };
+  std::vector<RayResult> ray_results;
   ray_results.reserve(num_rays);
   
   // Generate rays in sphere pattern
@@ -335,6 +351,7 @@ inline void handleBoundingBoxTo3D(
     
     // Test raycast in each submap
     bool hit = false;
+    float hit_distance = t_far;
     for (const auto& submap_info : closest_submaps) {
       const auto& submap = submap_info.submap;
       const okvis::kinematics::Transformation& T_WK = submap_info.T_WK;
@@ -352,17 +369,23 @@ inline void handleBoundingBoxTo3D(
         *submap, submap->getOctree(), ray_origin_K, ray_dir_K, t_near, t_far);
       
       if (result.has_value()) {
+        // Result is in K-frame, transform to world frame to get distance
+        const Eigen::Vector3f point_K_result = result->template head<3>();
+        const Eigen::Vector3d point_K_d = point_K_result.cast<double>();
+        const Eigen::Vector3d point_W_d = T_WK * point_K_d;
+        const Eigen::Vector3f point_W_result = point_W_d.cast<float>();
+        hit_distance = (point_W_result - ray_origin_W).norm();
         hit = true;
         break;
       }
     }
-    ray_results.push_back({test_dir_W, hit});
+    ray_results.push_back({test_dir_W, hit, hit_distance});
   }
   
   // Log results concisely
   int hits = 0;
-  for (const auto& [dir, hit] : ray_results) {
-    if (hit) hits++;
+  for (const auto& result : ray_results) {
+    if (result.hit) hits++;
   }
   LOG(INFO) << "Ray test: " << hits << "/" << num_rays << " rays hit";
   
@@ -378,10 +401,11 @@ inline void handleBoundingBoxTo3D(
   // Log sample of ray directions that hit (first 100)
   int hit_count = 0;
   LOG(INFO) << "Rays that hit (first 10):";
-  for (const auto& [dir, hit] : ray_results) {
-    if (hit && hit_count < 100) {
+  for (const auto& result : ray_results) {
+    if (result.hit && hit_count < 100) {
       LOG(INFO) << "  dir=[" << std::fixed << std::setprecision(3)
-                << dir.x() << "," << dir.y() << "," << dir.z() << "]";
+                << result.direction.x() << "," << result.direction.y() << "," << result.direction.z() 
+                << "] d=" << result.distance;
       hit_count++;
     }
   }
@@ -748,6 +772,87 @@ inline void handleBoundingBoxTo3D(
       marker.color.a = 1.0;
       marker.lifetime = rclcpp::Duration(std::chrono::seconds(10));
       marker_array->markers.push_back(marker);
+    }
+    
+    // 7. Arrows for test rays that hit (green arrows with correct length)
+    {
+      for (const auto& result : ray_results) {
+        if (result.hit) {
+          visualization_msgs::msg::Marker arrow_marker;
+          arrow_marker.header.frame_id = "world";
+          arrow_marker.header.stamp = now;
+          arrow_marker.ns = "raycast_debug";
+          arrow_marker.id = marker_id++;
+          arrow_marker.type = visualization_msgs::msg::Marker::ARROW;
+          arrow_marker.action = visualization_msgs::msg::Marker::ADD;
+          
+          // Start point at ray origin
+          geometry_msgs::msg::Point start;
+          start.x = ray_origin_W.x();
+          start.y = ray_origin_W.y();
+          start.z = ray_origin_W.z();
+          
+          // End point at hit distance along ray direction
+          Eigen::Vector3f end_pos = ray_origin_W + result.direction * result.distance;
+          geometry_msgs::msg::Point end;
+          end.x = end_pos.x();
+          end.y = end_pos.y();
+          end.z = end_pos.z();
+          
+          arrow_marker.points.push_back(start);
+          arrow_marker.points.push_back(end);
+          arrow_marker.scale.x = 0.05;  // shaft diameter (thinner for test rays)
+          arrow_marker.scale.y = 0.08;  // head diameter
+          arrow_marker.scale.z = 0.1;   // head length
+          arrow_marker.color.r = 0.0;
+          arrow_marker.color.g = 1.0;  // Green for successful hits
+          arrow_marker.color.b = 0.0;
+          arrow_marker.color.a = 0.8;
+          arrow_marker.lifetime = rclcpp::Duration(std::chrono::seconds(10));
+          marker_array->markers.push_back(arrow_marker);
+        }
+      }
+    }
+    
+    // 8. Arrows for test rays that missed (red arrows, truncated to 10m)
+    {
+      const float max_miss_length = 10.0f;  // Show up to 10m for missed rays
+      for (const auto& result : ray_results) {
+        if (!result.hit) {
+          visualization_msgs::msg::Marker arrow_marker;
+          arrow_marker.header.frame_id = "world";
+          arrow_marker.header.stamp = now;
+          arrow_marker.ns = "raycast_debug";
+          arrow_marker.id = marker_id++;
+          arrow_marker.type = visualization_msgs::msg::Marker::ARROW;
+          arrow_marker.action = visualization_msgs::msg::Marker::ADD;
+          
+          // Start point at ray origin
+          geometry_msgs::msg::Point start;
+          start.x = ray_origin_W.x();
+          start.y = ray_origin_W.y();
+          start.z = ray_origin_W.z();
+          
+          // End point at max_miss_length along ray direction
+          Eigen::Vector3f end_pos = ray_origin_W + result.direction * max_miss_length;
+          geometry_msgs::msg::Point end;
+          end.x = end_pos.x();
+          end.y = end_pos.y();
+          end.z = end_pos.z();
+          
+          arrow_marker.points.push_back(start);
+          arrow_marker.points.push_back(end);
+          arrow_marker.scale.x = 0.03;  // shaft diameter (thinner for missed rays)
+          arrow_marker.scale.y = 0.05;  // head diameter
+          arrow_marker.scale.z = 0.06;  // head length
+          arrow_marker.color.r = 1.0;   // Red for missed rays
+          arrow_marker.color.g = 0.0;
+          arrow_marker.color.b = 0.0;
+          arrow_marker.color.a = 0.3;  // Semi-transparent for missed rays
+          arrow_marker.lifetime = rclcpp::Duration(std::chrono::seconds(10));
+          marker_array->markers.push_back(arrow_marker);
+        }
+      }
     }
     
     // Publish the marker array
