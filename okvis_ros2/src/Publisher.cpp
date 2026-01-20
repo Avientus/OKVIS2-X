@@ -26,6 +26,7 @@
 #include <pcl_conversions/pcl_conversions.h>
 #include <sensor_msgs/image_encodings.hpp>
 #include <chrono>
+#include <unordered_set>
 
 #include <okvis/FrameTypedefs.hpp>
 #include <okvis/timing/Timer.hpp>
@@ -71,15 +72,13 @@ void Publisher::setupNode(std::shared_ptr<rclcpp::Node> node)
   pubPointsMatched_ =       threadedPublisher_->registerPublisher<sensor_msgs::msg::PointCloud2>("okvis_points_matched");
   pubPointsAlignment_ =     threadedPublisher_->registerPublisher<sensor_msgs::msg::PointCloud2>("okvis_points_alignment");
   pubOccupancyGrid_ =       threadedPublisher_->registerPublisher<nav_msgs::msg::OccupancyGrid>("okvis_occupancy_grid");
-  pubSubmapBounds_ =        threadedPublisher_->registerPublisher<visualization_msgs::msg::MarkerArray>("okvis_submap_bounds");
+
   
   // Initialize global occupancy grid (100m x 100m centered at world origin)
   globalGridWidth_ = 2000;   // 100m / 0.05m
   globalGridHeight_ = 2000;
   globalGridOrigin_ = Eigen::Vector2f(-50.0f, -50.0f);  // Centered at (0,0)
   globalOccupancyGrid_.resize(globalGridWidth_ * globalGridHeight_, -1);  // All unknown
-  LOG(INFO) << "Initialized global occupancy grid: " << globalGridWidth_ << "x" << globalGridHeight_ 
-            << " @ 0.05m resolution, origin: [" << globalGridOrigin_.x() << "," << globalGridOrigin_.y() << "]";
       
   // get the mesh, if there is one
   // where to get the mesh from
@@ -893,6 +892,10 @@ size_t Publisher::updateGlobalGridFromSubmap(uint64_t submap_id,
   
   size_t valid_cells = 0;
   const Eigen::Isometry3f& T_WK = submap.T_WK;
+  const int8_t occupied_threshold = 50;
+  
+  // Track newly set occupied cells for filtering isolated ones
+  std::unordered_set<size_t> newly_occupied_cells;
   
   // Query each cell in the grid
   for (uint32_t grid_y = 0; grid_y < grid_height; ++grid_y) {
@@ -942,13 +945,65 @@ size_t Publisher::updateGlobalGridFromSubmap(uint64_t submap_id,
       // ROS OccupancyGrid uses: index = x + y * width
       const size_t grid_index = grid_x + grid_y * grid_width;
       if (grid_value != -1) {
+        const int8_t old_value = global_grid[grid_index];
+        bool should_update = false;
+        
         // If cell is unknown or this is more confident, update it
-        if (global_grid[grid_index] == -1 ||
-            (grid_value > 50 && global_grid[grid_index] < grid_value) ||  // More occupied
-            (grid_value < 50 && global_grid[grid_index] > grid_value)) {  // More free
+        if (old_value == -1 ||
+            (grid_value > 50 && old_value < grid_value) ||  // More occupied
+            (grid_value < 50 && old_value > grid_value)) {  // More free
+          should_update = true;
+        }
+        
+        if (should_update) {
           global_grid[grid_index] = grid_value;
+          
+          // Track if we set it to occupied
+          if (grid_value >= occupied_threshold) {
+            newly_occupied_cells.insert(grid_index);
+          }
         }
       }
+    }
+  }
+  
+  // Filter isolated occupied cells
+  // Only remove occupied cells that have no occupied neighbors AND no unknown neighbors
+  // (i.e., keep occupied if any neighbor is occupied or unknown)
+  for (size_t cell_idx : newly_occupied_cells) {
+    const uint32_t x = cell_idx % grid_width;
+    const uint32_t y = cell_idx / grid_width;
+    
+    bool has_unknown_neighbor = false;
+    
+    // Check 8 neighbors (including diagonals)
+    for (int dy = -1; dy <= 1 && !has_unknown_neighbor; ++dy) {
+      for (int dx = -1; dx <= 1 && !has_unknown_neighbor; ++dx) {
+        if (dx == 0 && dy == 0) continue;
+        
+        const int nx = static_cast<int>(x) + dx;
+        const int ny = static_cast<int>(y) + dy;
+        
+        // Boundary check
+        if (nx < 0 || nx >= static_cast<int>(grid_width) ||
+            ny < 0 || ny >= static_cast<int>(grid_height)) {
+          continue;
+        }
+        
+        const size_t neighbor_idx = nx + ny * grid_width;
+        const int8_t neighbor_value = global_grid[neighbor_idx];
+        
+        // Check if neighbor is occupied (either in new set OR already in global grid) or unknown
+        if (newly_occupied_cells.count(neighbor_idx) > 0 ||
+            neighbor_value >= occupied_threshold) {                  // Unknown neighbor
+          has_unknown_neighbor = true;
+        }
+      }
+    }
+    
+    // If no occupied or unknown neighbors (all neighbors are free), mark as unknown
+    if (!has_unknown_neighbor) {
+      global_grid[cell_idx] = -1;
     }
   }
   
@@ -960,8 +1015,6 @@ void Publisher::extractSubmapOccupancyGrid(
     const se::Submap<okvis::SupereightMapType>& submap,
     float robot_height_z)
 {
-  LOG(INFO) << "Extracting occupancy grid from submap " << submap_id;
-  
   // IMPORTANT: aabb() returns bounds in MAP FRAME K (not world frame!)
   const Eigen::Array3f aabb_min_K = submap.map->aabb().min();
   const Eigen::Array3f aabb_max_K = submap.map->aabb().max();
@@ -981,12 +1034,6 @@ void Publisher::extractSubmapOccupancyGrid(
   const float resolution = occupancy_grid_resolution_;
   const uint32_t width = static_cast<uint32_t>(std::ceil(size.x() / resolution));
   const uint32_t height = static_cast<uint32_t>(std::ceil(size.y() / resolution));
-  
-  LOG(INFO) << "  Submap bounds (map frame K): [" << aabb_min_K.x() << "," << aabb_min_K.y() << "," << aabb_min_K.z() 
-            << "] to [" << aabb_max_K.x() << "," << aabb_max_K.y() << "," << aabb_max_K.z() << "]";
-  LOG(INFO) << "  Submap bounds (world frame W): [" << aabb_min_W.x() << "," << aabb_min_W.y() << "," << aabb_min_W.z() 
-            << "] to [" << aabb_max_W.x() << "," << aabb_max_W.y() << "," << aabb_max_W.z() << "]";
-  LOG(INFO) << "  Grid size: " << width << "x" << height << " @ " << resolution << "m resolution";
   
   // Store grid with world frame origin and pose snapshot for loop closure
   SubmapOccupancyGrid grid;
@@ -1079,30 +1126,6 @@ void Publisher::extractSubmapOccupancyGrid(
     }
   }
   
-  LOG(INFO) << "  Extraction stats:";
-  LOG(INFO) << "    Total queries: " << total_queries;
-  LOG(INFO) << "    Valid cells: " << valid_cells << " (" 
-            << (100.0f * valid_cells / total_queries) << "%)";
-  LOG(INFO) << "    Unknown (invalid): " << unknown_cells << " (" 
-            << (100.0f * unknown_cells / total_queries) << "%)";
-  LOG(INFO) << "    Occupied (near 0 or positive): " << occupied_cells << " (" 
-            << (100.0f * occupied_cells / total_queries) << "%)";
-  LOG(INFO) << "    Free (negative < -0.5): " << free_cells << " (" 
-            << (100.0f * free_cells / total_queries) << "%)";
-  LOG(INFO) << "    Unclassified: " << near_surface_cells << " (" 
-            << (100.0f * near_surface_cells / total_queries) << "%)";
-  
-  if (valid_cells > 0) {
-    LOG(INFO) << "    Occupancy value range: [" << min_occ << ", " << max_occ << "]";
-    LOG(INFO) << "    Sample values: ";
-    std::stringstream ss;
-    for (size_t i = 0; i < sample_values.size(); ++i) {
-      ss << sample_values[i];
-      if (i < sample_values.size() - 1) ss << ", ";
-    }
-    LOG(INFO) << "      " << ss.str();
-  }
-  
   // Store the grid (positions will be transformed using T_WK during merge)
   submapOccupancyGrids_[submap_id] = std::move(grid);
 }
@@ -1111,127 +1134,7 @@ void Publisher::publishOccupancyGridAsCallback(
     const State& latest_state,
     const AlignedUnorderedMap<uint64_t, se::Submap<okvis::SupereightMapType>>& seSubmapLookup)
 {
-  // Start timing measurement
-  const auto start_time = std::chrono::high_resolution_clock::now();
-  
-  LOG(INFO) << "========== publishOccupancyGridAsCallback CALLED with " 
-            << seSubmapLookup.size() << " active submaps, " 
-            << submapOccupancyGrids_.size() << " stored grids ==========";
-  
-  okvis::TimerSwitchable timer_total("OccupancyGrid: Total");
-  
-  // VISUALIZATION: Publish submap boundaries for debugging
-  LOG(INFO) << "Creating submap boundary markers for " << seSubmapLookup.size() << " submaps";
-  auto marker_array_msg = std::make_shared<visualization_msgs::msg::MarkerArray>();
-  int marker_id = 0;
-  
-  // Define colors for different submaps (cycling through rainbow)
-  auto getColor = [](int id) -> std::array<float, 4> {
-    float hue = (id * 137.5f) / 360.0f; // Golden angle for good color distribution
-    hue = hue - std::floor(hue); // Wrap to [0, 1]
-    
-    // HSV to RGB conversion (S=1, V=1 for bright colors)
-    float h6 = hue * 6.0f;
-    float x = 1.0f - std::abs(std::fmod(h6, 2.0f) - 1.0f);
-    
-    if (h6 < 1.0f) return {1.0f, x, 0.0f, 0.5f};
-    else if (h6 < 2.0f) return {x, 1.0f, 0.0f, 0.5f};
-    else if (h6 < 3.0f) return {0.0f, 1.0f, x, 0.5f};
-    else if (h6 < 4.0f) return {0.0f, x, 1.0f, 0.5f};
-    else if (h6 < 5.0f) return {x, 0.0f, 1.0f, 0.5f};
-    else return {1.0f, 0.0f, x, 0.5f};
-  };
-  
-  for (const auto& [submap_id, submap] : seSubmapLookup) {
-    if (!submap.map) continue;
-    
-    // Get AABB in map frame K
-    const Eigen::Array3f aabb_min_K = submap.map->aabb().min();
-    const Eigen::Array3f aabb_max_K = submap.map->aabb().max();
-    
-    // Transform to world frame
-    const Eigen::Isometry3f& T_WK = submap.T_WK;
-    Eigen::Vector3f aabb_min_W_vec = T_WK * aabb_min_K.matrix();
-    Eigen::Vector3f aabb_max_W_vec = T_WK * aabb_max_K.matrix();
-    
-    // Recalculate min/max after rotation
-    Eigen::Array3f aabb_min_W = aabb_min_W_vec.array().min(aabb_max_W_vec.array());
-    Eigen::Array3f aabb_max_W = aabb_min_W_vec.array().max(aabb_max_W_vec.array());
-    
-    // Create wireframe cube marker
-    visualization_msgs::msg::Marker marker;
-    marker.header.frame_id = "world";
-    marker.header.stamp.sec = latest_state.timestamp.sec;
-    marker.header.stamp.nanosec = latest_state.timestamp.nsec;
-    marker.ns = "submap_bounds";
-    marker.id = marker_id++;
-    marker.type = visualization_msgs::msg::Marker::LINE_LIST;
-    marker.action = visualization_msgs::msg::Marker::ADD;
-    marker.scale.x = 0.05; // Line width
-    
-    auto color = getColor(submap_id);
-    marker.color.r = color[0];
-    marker.color.g = color[1];
-    marker.color.b = color[2];
-    marker.color.a = color[3];
-    
-    // Create 12 edges of the bounding box
-    auto addEdge = [&](float x1, float y1, float z1, float x2, float y2, float z2) {
-      geometry_msgs::msg::Point p1, p2;
-      p1.x = x1; p1.y = y1; p1.z = z1;
-      p2.x = x2; p2.y = y2; p2.z = z2;
-      marker.points.push_back(p1);
-      marker.points.push_back(p2);
-    };
-    
-    float xmin = aabb_min_W.x(), ymin = aabb_min_W.y(), zmin = aabb_min_W.z();
-    float xmax = aabb_max_W.x(), ymax = aabb_max_W.y(), zmax = aabb_max_W.z();
-    
-    // Bottom face
-    addEdge(xmin, ymin, zmin, xmax, ymin, zmin);
-    addEdge(xmax, ymin, zmin, xmax, ymax, zmin);
-    addEdge(xmax, ymax, zmin, xmin, ymax, zmin);
-    addEdge(xmin, ymax, zmin, xmin, ymin, zmin);
-    
-    // Top face
-    addEdge(xmin, ymin, zmax, xmax, ymin, zmax);
-    addEdge(xmax, ymin, zmax, xmax, ymax, zmax);
-    addEdge(xmax, ymax, zmax, xmin, ymax, zmax);
-    addEdge(xmin, ymax, zmax, xmin, ymin, zmax);
-    
-    // Vertical edges
-    addEdge(xmin, ymin, zmin, xmin, ymin, zmax);
-    addEdge(xmax, ymin, zmin, xmax, ymin, zmax);
-    addEdge(xmax, ymax, zmin, xmax, ymax, zmax);
-    addEdge(xmin, ymax, zmin, xmin, ymax, zmax);
-    
-    marker_array_msg->markers.push_back(marker);
-    
-    // Add text label with submap ID
-    visualization_msgs::msg::Marker text_marker;
-    text_marker.header = marker.header;
-    text_marker.ns = "submap_labels";
-    text_marker.id = marker_id++;
-    text_marker.type = visualization_msgs::msg::Marker::TEXT_VIEW_FACING;
-    text_marker.action = visualization_msgs::msg::Marker::ADD;
-    text_marker.pose.position.x = (xmin + xmax) / 2.0f;
-    text_marker.pose.position.y = (ymin + ymax) / 2.0f;
-    text_marker.pose.position.z = zmax + 0.5f; // Above the box
-    text_marker.scale.z = 0.3; // Text height
-    text_marker.color = marker.color;
-    text_marker.color.a = 1.0; // Opaque text
-    text_marker.text = "Submap " + std::to_string(submap_id);
-    
-    marker_array_msg->markers.push_back(text_marker);
-    
-    LOG(INFO) << "  Submap " << submap_id << " bounds: [" 
-              << xmin << "," << ymin << "," << zmin << "] to ["
-              << xmax << "," << ymax << "," << zmax << "]";
-  }
-  
-  // Publish visualization
-  LOG(INFO) << "Publishing " << marker_array_msg->markers.size() << " markers to /okvis/okvis_submap_bounds";
-  pubSubmapBounds_.publish(marker_array_msg);
+ 
   
   // Create the occupancy grid message
   okvis::TimerSwitchable timer_setup("OccupancyGrid: Setup");
@@ -1253,17 +1156,10 @@ void Publisher::publishOccupancyGridAsCallback(
   grid_msg->info.origin.position.y = -occupancy_grid_height_dim_ / 2.0;
   grid_msg->info.origin.position.z = current_robot_height;
   grid_msg->info.origin.orientation.w = 1.0;
-  
-  LOG(INFO) << "Robot position (world): [" << t_WB.x() << ", " << t_WB.y() << ", " << t_WB.z() << "]";
-  LOG(INFO) << "Occupancy grid origin (world): [" << grid_msg->info.origin.position.x << ", " 
-            << grid_msg->info.origin.position.y << ", " << grid_msg->info.origin.position.z << "]";
-  LOG(INFO) << "Occupancy grid slice height (robot's current height): " << current_robot_height << "m";
 
   // Initialize or check global occupancy grid dimensions
   const size_t expected_grid_size = grid_msg->info.width * grid_msg->info.height;
   if (globalOccupancyGrid_.size() != expected_grid_size) {
-    LOG(INFO) << "Initializing global occupancy grid: " << grid_msg->info.width << "x" 
-              << grid_msg->info.height << " cells";
     globalOccupancyGrid_.resize(expected_grid_size, -1);  // All unknown
     globalGridWidth_ = grid_msg->info.width;
     globalGridHeight_ = grid_msg->info.height;
@@ -1296,19 +1192,16 @@ void Publisher::publishOccupancyGridAsCallback(
     // Always update the latest submap
     if (submap_id == latest_submap_id) {
       needs_update = true;
-      LOG(INFO) << "Submap " << submap_id << " needs update: latest submap";
     } else {
       // Check if pose has changed significantly
       auto it = lastMergedPoses_.find(submap_id);
       if (it == lastMergedPoses_.end()) {
         // New submap, needs update
         needs_update = true;
-        LOG(INFO) << "Submap " << submap_id << " needs update: new submap";
       } else {
         // Check if pose changed significantly (0.01m translation or 0.01rad rotation)
         if (poseChanged(it->second, submap.T_WK, 0.01f, 0.01f)) {
           needs_update = true;
-          LOG(INFO) << "Submap " << submap_id << " needs update: pose changed significantly";
         }
       }
     }
@@ -1317,8 +1210,6 @@ void Publisher::publishOccupancyGridAsCallback(
       submaps_to_update.push_back(submap_id);
     }
   }
-  
-  LOG(INFO) << "Updating " << submaps_to_update.size() << " out of " << seSubmapLookup.size() << " submaps";
   
   // Update global grid only for changed submaps
   size_t total_valid_cells = 0;
@@ -1331,7 +1222,6 @@ void Publisher::publishOccupancyGridAsCallback(
         grid_msg->info.resolution, current_robot_height,
         globalOccupancyGrid_);
     total_valid_cells += valid_cells;
-    LOG(INFO) << "  Submap " << submap_id << " contributed " << valid_cells << " valid cells";
     
     // Update pose tracking
     lastMergedPoses_[submap_id] = submap.T_WK;
@@ -1341,10 +1231,6 @@ void Publisher::publishOccupancyGridAsCallback(
   
   // Copy global grid to message for publishing
   grid_msg->data = globalOccupancyGrid_;
-  
-  LOG(INFO) << "OccupancyGrid Update Stats:";
-  LOG(INFO) << "  Submaps updated: " << submaps_to_update.size() << " out of " << seSubmapLookup.size();
-  LOG(INFO) << "  Total valid cells updated: " << total_valid_cells;
   
   // Count final grid statistics
   size_t final_occupied = 0;
@@ -1357,26 +1243,8 @@ void Publisher::publishOccupancyGridAsCallback(
     else final_free++;
   }
   
-  LOG(INFO) << "OccupancyGrid Final Statistics:";
-  LOG(INFO) << "  Occupied: " << final_occupied << " (" 
-            << (100.0f * final_occupied / grid_msg->data.size()) << "%)";
-  LOG(INFO) << "  Free: " << final_free << " (" 
-            << (100.0f * final_free / grid_msg->data.size()) << "%)";
-  LOG(INFO) << "  Unknown: " << final_unknown << " (" 
-            << (100.0f * final_unknown / grid_msg->data.size()) << "%)";
-  
   // Publish the grid
   pubOccupancyGrid_.publish(grid_msg);
-  
-  timer_total.stop();
-  
-  // End timing measurement and log execution time
-  const auto end_time = std::chrono::high_resolution_clock::now();
-  const auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time);
-  const double execution_time_ms = duration.count() / 1000.0;
-  LOG(INFO) << "========== publishOccupancyGridAsCallback COMPLETED ==========";
-  LOG(INFO) << "Execution time: " << execution_time_ms << " ms (" 
-            << (execution_time_ms / 1000.0) << " seconds)";
 }
 
 void Publisher::publishAlignmentPointsAsCallback(const okvis::Time& timestamp, const okvis::kinematics::Transformation& T_WS,

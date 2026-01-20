@@ -32,7 +32,7 @@ general:
   occupancy_grid_resolution: 0.5 # Grid cell size in meters
   occupancy_grid_width: 200.0       # Grid width in meters
   occupancy_grid_height: 200.0      # Grid height in meters
-  occupancy_grid_occupied_threshold: 0.4 # TSDF threshold for classifying cells as occupied (cells with abs(TSDF_value) < threshold are occupied)
+  occupancy_grid_occupied_threshold: 0.1 # TSDF threshold for classifying cells as occupied (cells with abs(TSDF_value) < threshold are occupied)
 
 map:
   dim:            [100.0, 100.0, 5.0]
