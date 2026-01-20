@@ -264,8 +264,6 @@ class Publisher
   okvis::ThreadedPublisher::PublisherHandle<visualization_msgs::msg::Marker> slice_pub_;
   /// \brief The publisher for the occupancy grid.
   okvis::ThreadedPublisher::PublisherHandle<nav_msgs::msg::OccupancyGrid> pubOccupancyGrid_;
-  /// \brief The publisher for submap boundary visualization.
-  okvis::ThreadedPublisher::PublisherHandle<visualization_msgs::msg::MarkerArray> pubSubmapBounds_;
 
   /// \brief Image publishers.
   std::map<std::string, okvis::ThreadedPublisher::PublisherHandle<sensor_msgs::msg::Image>> pubImages_; ///< Image publisher map.
