@@ -24,6 +24,7 @@
 #include <iostream>
 #include <signal.h>
 #include <stdlib.h>
+#include <thread>
 
 #include <glog/logging.h>
 
@@ -351,17 +352,25 @@ int main(int argc, char **argv) {
     }
   #endif
   
+  // Spin ROS callbacks in a separate thread to avoid IMU starvation.
+  rclcpp::executors::MultiThreadedExecutor executor;
+  executor.add_node(node);
+  std::thread spin_thread([&executor]() { executor.spin(); });
+
   // Main loop
   while (true) {
-    rclcpp::spin_some(node);
     processor.processFrame();
     std::map<std::string, cv::Mat> images;
     okvis::Time stereoTimestamp;
     processor.display(images, stereoTimestamp);
     publisher.publishImages(images, stereoTimestamp);
     if(shtdown) {
+      executor.cancel();
       break;
     }
+  }
+  if (spin_thread.joinable()) {
+    spin_thread.join();
   }
   #ifdef SRL_NAV_USE_REALSENSE
     realsense->stopStreaming();
