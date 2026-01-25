@@ -46,6 +46,11 @@ public:
 
 
   /// @brief Display image and sigma
+  /// @param images Output map of images
+  /// @param timestamp Output timestamp of the stereo pair
+  virtual void display(std::map<std::string, cv::Mat> &images, okvis::Time &timestamp) override;
+  
+  /// @brief Legacy display function (backward compatibility)
   virtual void display(std::map<std::string, cv::Mat> &images) override;
 
   /// \name Add measurements to the algorithm.

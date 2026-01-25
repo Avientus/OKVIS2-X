@@ -528,7 +528,7 @@ bool DepthFusionProcessor::isSrcFrame(const okvis::kinematics::Transformation& T
 }
 
 
-void DepthFusionProcessor::display(std::map<std::string, cv::Mat> &images) {
+void DepthFusionProcessor::display(std::map<std::string, cv::Mat> &images, okvis::Time &timestamp) {
   if(visualisationsQueue_.Empty()) {
     return;
   }
@@ -550,7 +550,15 @@ void DepthFusionProcessor::display(std::map<std::string, cv::Mat> &images) {
         images[srcName] = vis_data.srcframes[i];
       }
     }
+    
+    // Extract timestamp from the stereo frame
+    timestamp = vis_data.frame.timeStamp;
   }
+}
+
+void DepthFusionProcessor::display(std::map<std::string, cv::Mat> &images) {
+  okvis::Time timestamp;
+  display(images, timestamp);
 }
 
 

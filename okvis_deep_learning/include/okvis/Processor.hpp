@@ -45,7 +45,12 @@ public:
 
   ~Processor() = default;
 
-  /// @brief Display some visualisation.
+  /// @brief Display some visualisation with timestamp.
+  /// @param images Output map of images
+  /// @param timestamp Output timestamp of the images
+  void display(std::map<std::string, cv::Mat> & images, okvis::Time &timestamp);
+  
+  /// @brief Display some visualisation (legacy).
   void display(std::map<std::string, cv::Mat> & images);
 
   /// @brief Print information about the current processing.

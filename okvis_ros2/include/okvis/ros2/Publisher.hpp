@@ -143,9 +143,11 @@ class Publisher
   /**
    * \brief          Publish any named images as such.
    * \param images   Named images to publish.
+   * \param timestamp Optional timestamp for the images (particularly for stereo pairs).
    * \return True on success.
    */
-  bool publishImages(const std::map<std::string, cv::Mat>& images) const;
+  bool publishImages(const std::map<std::string, cv::Mat>& images, 
+                     const okvis::Time& timestamp = okvis::Time(0)) const;
 
   /**
    * \brief          Add an IMU measurement for propagation and publishing.

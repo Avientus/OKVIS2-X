@@ -101,7 +101,7 @@ Stereo2DepthProcessor::~Stereo2DepthProcessor() {
   }
 }
 
-void Stereo2DepthProcessor::display(std::map<std::string, cv::Mat> &images) {
+void Stereo2DepthProcessor::display(std::map<std::string, cv::Mat> &images, okvis::Time &timestamp) {
   if(visualisationsQueue_.Empty()) {
     return;
   }
@@ -116,7 +116,14 @@ void Stereo2DepthProcessor::display(std::map<std::string, cv::Mat> &images) {
     if(!vis_data.sigmaImage.empty()) {
       images["stereoSigma"] = vis_data.sigmaImage;
     }
+    // Extract timestamp from the stereo pair
+    timestamp = vis_data.frame.timeStamp;
   }
+}
+
+void Stereo2DepthProcessor::display(std::map<std::string, cv::Mat> &images) {
+  okvis::Time timestamp;
+  display(images, timestamp);
 }
 
 bool Stereo2DepthProcessor::addImages(const std::map<size_t, std::pair<okvis::Time, cv::Mat>> & images,

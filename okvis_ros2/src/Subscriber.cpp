@@ -18,6 +18,8 @@
  */
  
 #include <glog/logging.h>
+#include <atomic>
+#include <chrono>
 #include <okvis/ros2/Subscriber.hpp>
 #include <okvis/ros2/PointCloudUtilities.hpp>
 #include <pcl_conversions/pcl_conversions.h>
@@ -313,7 +315,19 @@ void Subscriber::synchronizeData() {
       if (casted_processor) {
         isProcessor = true;
         if(!casted_processor->addImages(timestampedImages, timestampedDepthImages)) {
-          LOG(WARNING) << "Frame not added to Processor at t="<< timestampedImages.at(0).first;
+          constexpr int64_t kFrameDropLogThrottleNs = 1000000000LL; // 1s
+          static std::atomic<int64_t> last_drop_log_ns{0};
+          const int64_t now_ns =
+              std::chrono::duration_cast<std::chrono::nanoseconds>(
+                  std::chrono::steady_clock::now().time_since_epoch())
+                  .count();
+          int64_t last_ns = last_drop_log_ns.load(std::memory_order_relaxed);
+          if (now_ns - last_ns >= kFrameDropLogThrottleNs &&
+              last_drop_log_ns.compare_exchange_strong(
+                  last_ns, now_ns, std::memory_order_relaxed)) {
+            LOG(WARNING) << "Frame not added to Processor at t="
+                         << timestampedImages.at(0).first;
+          }
         }
       }
       else if(!viInterface_->addImages(tcheck, images, depthImages)) {
