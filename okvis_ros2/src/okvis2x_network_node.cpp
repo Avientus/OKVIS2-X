@@ -356,8 +356,9 @@ int main(int argc, char **argv) {
     rclcpp::spin_some(node);
     processor.processFrame();
     std::map<std::string, cv::Mat> images;
-    processor.display(images);
-    publisher.publishImages(images);
+    okvis::Time stereoTimestamp;
+    processor.display(images, stereoTimestamp);
+    publisher.publishImages(images, stereoTimestamp);
     if(shtdown) {
       break;
     }

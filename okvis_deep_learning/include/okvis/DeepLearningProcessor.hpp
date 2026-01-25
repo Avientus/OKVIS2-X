@@ -52,7 +52,16 @@ public:
     blocking_ = blocking;
   }
 
-  /// @brief Display rgb image, depth image and language features
+  /// @brief Display rgb image, depth image and language features with timestamp
+  /// @param images Output map of images
+  /// @param timestamp Output timestamp of the images
+  virtual void display(std::map<std::string, cv::Mat> &images, okvis::Time &timestamp) {
+    // Default implementation for backward compatibility
+    display(images);
+    timestamp = okvis::Time(0);
+  }
+  
+  /// @brief Display rgb image, depth image and language features (legacy)
   virtual void display(std::map<std::string, cv::Mat> &images) = 0;
 
   /// \name Add measurements to the algorithm.

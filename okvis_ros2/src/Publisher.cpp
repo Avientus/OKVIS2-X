@@ -450,19 +450,28 @@ void Publisher::setMeshesPath(std::string meshesDir){
   meshesDir_ = meshesDir;
 }
 
-bool Publisher::publishImages(const std::map<std::string, cv::Mat>& images) const {
+bool Publisher::publishImages(const std::map<std::string, cv::Mat>& images, 
+                              const okvis::Time& timestamp) const {
+  // Prepare header with timestamp if provided
+  std_msgs::msg::Header header;
+  if(timestamp.toSec() > 0.0) {
+    header.stamp.sec = timestamp.sec;
+    header.stamp.nanosec = timestamp.nsec;
+    header.frame_id = "stereo_camera";
+  }
+  
   for(const auto & image : images) {
     sensor_msgs::msg::Image::SharedPtr msg;
     
     // Check if this is the raw depth image (stereoDepthRaw with float type)
     if(image.first == "stereoDepthRaw" && image.second.type() == CV_32FC1) {
       // Publish raw depth with proper encoding (32-bit float, single channel)
-      msg = cv_bridge::CvImage(std_msgs::msg::Header(), 
+      msg = cv_bridge::CvImage(header, 
                                sensor_msgs::image_encodings::TYPE_32FC1, 
                                image.second).toImageMsg();
     } else {
       // Default: bgr8 for visualization images
-      msg = cv_bridge::CvImage(std_msgs::msg::Header(), "bgr8", image.second).toImageMsg();
+      msg = cv_bridge::CvImage(header, "bgr8", image.second).toImageMsg();
     }
     
     const auto & pubIter = pubImages_.find(image.first);
@@ -471,19 +480,27 @@ bool Publisher::publishImages(const std::map<std::string, cv::Mat>& images) cons
     }
     pubIter->second.publish(msg);
   }
+  
+  // Note: Timestamp is already embedded in each image message header
+  // Access it via: image_msg->header.stamp
+  
   return true;
 }
 
 void Publisher::setupNetworkTopics(const std::string & topicName) {
   // TODO: properly set topic names
-  std::string name = topicName + "Depth";
-  pubImages_[name] = threadedImagePublisher_->registerPublisher<sensor_msgs::msg::Image>("network_depth");
+  // Only publish raw depth - commented out processed depth and sigma
+  //std::string name = topicName + "Depth";
+  //pubImages_[name] = threadedImagePublisher_->registerPublisher<sensor_msgs::msg::Image>("network_depth");
 
-  name = topicName + "DepthRaw";
+  std::string name = topicName + "DepthRaw";
   pubImages_[name] = threadedImagePublisher_->registerPublisher<sensor_msgs::msg::Image>("network_depth_raw");
 
-  name = topicName + "Sigma";
-  pubImages_[name] = threadedImagePublisher_->registerPublisher<sensor_msgs::msg::Image>("network_sigma");
+  //name = topicName + "Sigma";
+  //pubImages_[name] = threadedImagePublisher_->registerPublisher<sensor_msgs::msg::Image>("network_sigma");
+  
+  // Note: Stereo pair timestamp is already embedded in the image message header
+  // No need for separate timestamp topic
 }
 
 void Publisher::publishSubmapsAsCallback(std::unordered_map<uint64_t, okvis::kinematics::Transformation, std::hash<uint64_t>, std::equal_to<uint64_t>, Eigen::aligned_allocator<std::pair<const uint64_t, okvis::kinematics::Transformation>>> submapPoseLookup,

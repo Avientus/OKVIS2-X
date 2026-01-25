@@ -79,7 +79,12 @@ class DepthFusionProcessor : public okvis::Stereo2DepthProcessor {
 
     virtual ~DepthFusionProcessor();
 
-    /// @brief Display stereo and motion images and sigma
+    /// @brief Display stereo and motion images and sigma with timestamp
+    /// @param images Output map of images
+    /// @param timestamp Output timestamp of the images
+    virtual void display(std::map<std::string, cv::Mat> &images, okvis::Time &timestamp) override;
+    
+    /// @brief Display stereo and motion images and sigma (legacy)
     virtual void display(std::map<std::string, cv::Mat> &images) override;
 
     /// @brief Set the images callback before OKVIS2 graph optimization

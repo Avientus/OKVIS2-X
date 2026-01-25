@@ -71,12 +71,17 @@ Processor::Processor(okvis::ViParameters& parameters,
   se_interface_.start();
 }
 
-void Processor::display(std::map<std::string, cv::Mat> & images) {
+void Processor::display(std::map<std::string, cv::Mat> & images, okvis::Time &timestamp) {
   slam_.display(images);
   if(images.empty()){
     return;
   }
-  deepLearningProcessor_->display(images);
+  deepLearningProcessor_->display(images, timestamp);
+}
+
+void Processor::display(std::map<std::string, cv::Mat> & images) {
+  okvis::Time timestamp;
+  display(images, timestamp);
 }
 
 void Processor::collectInfo() {
