@@ -362,9 +362,6 @@ int main(int argc, char **argv) {
     if(shtdown) {
       break;
     }
-    // Small sleep to prevent busy-wait when no visualization data is available
-    // This allows the depth processing thread to catch up
-    std::this_thread::sleep_for(std::chrono::milliseconds(1));
   }
   #ifdef SRL_NAV_USE_REALSENSE
     realsense->stopStreaming();
