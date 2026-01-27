@@ -72,21 +72,10 @@ Processor::Processor(okvis::ViParameters& parameters,
 }
 
 void Processor::display(std::map<std::string, cv::Mat> & images, okvis::Time &timestamp) {
-  static int call_count = 0;
   slam_.display(images);
-  size_t slam_images = images.size();
-  
   // Always call depth processor display, even if slam display returned empty
   // The depth processor has its own visualization queue that should be checked independently
   deepLearningProcessor_->display(images, timestamp);
-  size_t depth_images = images.size() - slam_images;
-  
-  if(call_count++ % 100 == 0) {
-    LOG(INFO) << "Processor::display() called (count: " << call_count 
-              << ") - SLAM images: " << slam_images 
-              << ", Depth images added: " << depth_images
-              << ", Total: " << images.size();
-  }
 }
 
 void Processor::display(std::map<std::string, cv::Mat> & images) {

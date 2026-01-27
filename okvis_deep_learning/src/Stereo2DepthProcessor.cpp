@@ -102,34 +102,16 @@ Stereo2DepthProcessor::~Stereo2DepthProcessor() {
 }
 
 void Stereo2DepthProcessor::display(std::map<std::string, cv::Mat> &images, okvis::Time &timestamp) {
-  static int call_count = 0;
-  static int empty_count = 0;
-  static int success_count = 0;
-  
-  call_count++;
-  
   if(visualisationsQueue_.Empty()) {
-    empty_count++;
-    if(call_count % 1000 == 0) {
-      LOG(INFO) << "Stereo2DepthProcessor::display() stats - Total calls: " << call_count 
-                << ", Empty: " << empty_count 
-                << ", Success: " << success_count 
-                << ", Queue empty rate: " << (100.0 * empty_count / call_count) << "%";
-    }
     return;
   }
-  
   VisualizationData vis_data;
   if(visualisationsQueue_.PopNonBlocking(&vis_data)) {
-    success_count++;
     images["leftImage"] = vis_data.frame.measurement.leftImage;
     images["rightImage"] = vis_data.frame.measurement.rightImage;
     images["stereoDepth"] = vis_data.depthImage;  // Visualization
     if(!vis_data.rawDepthImage.empty()) {
       images["stereoDepthRaw"] = vis_data.rawDepthImage;  // Raw depth in meters
-      LOG(INFO) << "SUCCESS! Added stereoDepthRaw to images - size: " << vis_data.rawDepthImage.size();
-    } else {
-      LOG(WARNING) << "rawDepthImage is EMPTY!";
     }
     if(!vis_data.sigmaImage.empty()) {
       images["stereoSigma"] = vis_data.sigmaImage;
@@ -241,15 +223,6 @@ void Stereo2DepthProcessor::processStereoNetwork(std::map<size_t, std::vector<ok
   visData.depthImage = visMatColored;  // Visualization (colorized)
   visData.rawDepthImage = frame0.measurement.depthImage.clone();  // Raw depth in meters
   visData.sigmaImage = visSigmaMatColored;
-  
-  static int push_count = 0;
-  if(push_count++ % 50 == 0) {
-    LOG(INFO) << "Pushing depth visualization to queue (count: " << push_count 
-              << ") - rawDepth size: " << visData.rawDepthImage.size() 
-              << ", type: " << visData.rawDepthImage.type()
-              << ", queue size before push: " << visualisationsQueue_.Size();
-  }
-  
   visualisationsQueue_.PushNonBlockingDroppingIfFull(visData, 10);  // Increased queue size from 1 to 10 for better visualization throughput
 
   // Set the processing flag false.
