@@ -11,7 +11,7 @@ cameras:
         focal_length: [698.4374406843338, 698.4374406843338],
         principal_point: [639.5, 359.5],
         cam_model: pinhole,
-        camera_type: rgb,
+        camera_type: gray,
         mapping: true,
         mapping_rectification: true,
         slam_use: okvis} #none, okvis, okvis-depth, okvis-virtual
@@ -27,7 +27,7 @@ cameras:
         focal_length: [698.4374406843338, 698.4374406843338],
         principal_point: [639.5, 359.5],
         cam_model: pinhole,
-        camera_type: rgb, #gray, rgb, gray+depth, rgb+depth
+        camera_type: gray, #gray, rgb, gray+depth, rgb+depth
         mapping_rectification: true,
         slam_use: okvis} #none, okvis, okvis-depth, okvis-virtual
 
