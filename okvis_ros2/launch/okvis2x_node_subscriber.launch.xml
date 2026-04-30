@@ -76,11 +76,10 @@
         <remap from="/okvis/cam4/image_raw" to="/alphasense/cam4/image_raw"/>
         <remap from="/okvis/imu0" to="/alphasense/imu"/> -->
         <!-- Simulator -->
-        <!-- <remap from="/okvis/cam0/image_raw" to="/rmf_owl/cam0/image_raw"/>
-        <remap from="/okvis/cam1/image_raw" to="/rmf_owl/cam1/image_raw"/>
-        <remap from="/okvis/depth0/image_raw" to="/rmf_owl/depth0/depth_image"/>
-        <remap from="/okvis/cam2/image_raw" to="/rmf_owl/rgb1/image_raw"/>
-        <remap from="/okvis/imu0" to="/rmf_owl/okvis_imu0"/> -->
+        <remap from="/okvis/cam0/image_raw" to="/drone/stereo_left_slam/rgb"/>
+        <remap from="/okvis/cam1/image_raw" to="/drone/stereo_right_slam/rgb"/>
+        <remap from="/okvis/imu0" to="/model/x500_vision_0/imu"/>
+
     </node>
 
     <node pkg="okvis" exec="okvis2x_depthfusion_network_node_subscriber" name="okvis" namespace="okvis" if="$(var depth_fusion)">

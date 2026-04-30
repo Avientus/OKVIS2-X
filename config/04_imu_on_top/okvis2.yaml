@@ -1,33 +1,33 @@
 %YAML:1.0
 cameras:
      - {T_SC:
-        [-0.08852668, -0.39465556, 0.91455454, 0.16420786,
-         0.99603833, -0.02732549, 0.08462242, -0.08375787,
-         -0.00840606, 0.91842273, 0.39551111, 0.05938239,
-         0.0, 0.0, 0.0, 1.0],
-        image_dimension: [640, 360],
-        distortion_coefficients: [-0.04991945671846616, 0.041077563346230084, -0.06272243731206353, 0.02992245999211272],
-        distortion_type: equidistant,
-        focal_length: [362.64233517581755, 362.31890857990555],
-        principal_point: [316.32263821987476, 183.72126236350624],
+        [0.0, -0.342, 0.940, 0.1,
+         1.0,  0.0,   0.0,  -0.1,
+         0.0,  0.940, 0.342, 0.0,
+         0.0,  0.0,   0.0,   1.0],
+        image_dimension: [1280, 720],
+        distortion_coefficients: [0.0, 0.0, 0.0, 0.0],
+        distortion_type: radtan,
+        focal_length: [698.4374406843338, 698.4374406843338],
+        principal_point: [639.5, 359.5],
         cam_model: pinhole,
-        camera_type: gray+depth,
+        camera_type: rgb,
         mapping: true,
         mapping_rectification: true,
         slam_use: okvis} #none, okvis, okvis-depth, okvis-virtual
 
      - {T_SC:
-        [0.04081806, -0.39659305, 0.91708661, 0.16056412,
-         0.99865522, -0.01316852, -0.05014326, 0.11125767,
-         0.03196315, 0.91790007, 0.3955222, 0.06151077,
-         0.0, 0.0, 0.0, 1.0],
-        image_dimension: [640, 360],
-        distortion_coefficients: [-0.04632202635636781, 0.017587393024377344, -0.018752501874871944, 0.004265834615733998],
-        distortion_type: equidistant,
-        focal_length: [361.7956791773588, 361.54715597510466],
-        principal_point: [313.48349979648606, 168.1296407976639],
+        [0.0, -0.342, 0.940, 0.1,
+         1.0,  0.0,   0.0,   0.1,
+         0.0,  0.940, 0.342, 0.0,
+         0.0,  0.0,   0.0,   1.0],
+        image_dimension: [1280, 720],
+        distortion_coefficients: [0.0, 0.0, 0.0, 0.0],
+        distortion_type: radtan,
+        focal_length: [698.4374406843338, 698.4374406843338],
+        principal_point: [639.5, 359.5],
         cam_model: pinhole,
-        camera_type: gray, #gray, rgb, gray+depth, rgb+depth
+        camera_type: rgb, #gray, rgb, gray+depth, rgb+depth
         mapping_rectification: true,
         slam_use: okvis} #none, okvis, okvis-depth, okvis-virtual
 
@@ -35,7 +35,7 @@ cameras:
 camera_parameters:
     timestamp_tolerance: 0.005 # [s] stereo frame out-of-sync tolerance
     sync_cameras: [0, 1] # the cameras that will be synchronised
-    image_delay: 0.021 # [s] timestamp_camera_correct = timestamp_camera - image_delay
+    image_delay: 0.0 # [s] timestamp_camera_correct = timestamp_camera - image_delay
     online_calibration: # some parameters to set the online
         do_extrinsics: true # Do we online-calibrate extrinsics?
         do_extrinsics_final_ba: false # Do we calibrate extrinsics in final BA?
