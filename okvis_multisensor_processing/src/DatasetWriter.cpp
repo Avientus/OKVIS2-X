@@ -125,7 +125,7 @@ bool DatasetWriter::addImuMeasurement(
   const int imuQueueSize = 100;
   if(imuMeasurementsReceived_.PushNonBlockingDroppingIfFull(
         imu_measurement, size_t(imuQueueSize))) {
-    LOG(WARNING) << "imu measurement drop ";
+    // LOG(WARNING) << "imu measurement drop ";
     return false;
   }
   return true;

@@ -76,8 +76,9 @@
         <remap from="/okvis/cam4/image_raw" to="/alphasense/cam4/image_raw"/>
         <remap from="/okvis/imu0" to="/alphasense/imu"/> -->
         <!-- Simulator -->
-        <remap from="/okvis/cam0/image_raw" to="/drone/stereo_left_slam/rgb"/>
-        <remap from="/okvis/cam1/image_raw" to="/drone/stereo_right_slam/rgb"/>
+        <remap from="/okvis/cam0/image_raw" to="/drone/left/rgb"/>
+        <remap from="/okvis/cam1/image_raw" to="/drone/right/rgb"/>
+        <remap from="/okvis/imu0" to="/model/x500_vision_0/imu"/>
         <!-- IMU handled by imu_restamper.py which publishes to /okvis/imu0 with wall time -->
 
     </node>
