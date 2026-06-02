@@ -47,7 +47,7 @@ camera_parameters:
     fov_scale: 1.0 # Divisor for new focal length which is only used when fisheye stereo rectification for dense mapping.
 
 imu_parameters:
-    use: true
+    use: false
     a_max: 163.84 # acceleration saturation [m/s^2]
     g_max: 5.72 # gyro saturation [rad/s]
     sigma_g_c: 6.519797189220827e-04
@@ -55,7 +55,7 @@ imu_parameters:
     sigma_bg: 4.027038e-03  # gyro bias prior [rad/s]
     sigma_ba: 4.827057e-02 # accelerometer bias prior [m/s^2]
     sigma_gw_c: 3.5772073471410063e-05 # gyro drift noise density [rad/s^s/sqrt(Hz)]
-    sigma_aw_c: 3.940336355177357e-04 # accelerometer drift noise density [m/s^2/sqrt(Hz)]
+    sigma_aw_c: 3.940336355177357e-03 # accelerometer drift noise density [m/s^2/sqrt(Hz)]
     g: 9.81007 # Earth's acceleration due to gravity [m/s^2]
     g0: [0.0, 0.0, 0.0] # initial gyroscope bias [rad/s]
     a0: [0.0, 0.0, 0.0] # initial accelerometer bias [m/s^2]

@@ -273,7 +273,7 @@ bool ThreadedSlam::addImuMeasurement(const okvis::Time& stamp,
   {
     if(imuMeasurementsReceived_.PushNonBlockingDroppingIfFull(
          imu_measurement, size_t(imuQueueSize))) {
-      LOG(WARNING) << "imu measurement drop ";
+      // LOG(WARNING) << "imu measurement drop ";
       return false;
     }
     return true;
