@@ -16,5 +16,4 @@
 [submodule "supereight2"]
 	path = supereight2
 	url = git@github.com:ethz-mrl/supereight2.git
-[submodule "drone_ws/src/OKVIS2-X"]
-	url = git@github.com:Avientus/OKVIS2-X.git
+
