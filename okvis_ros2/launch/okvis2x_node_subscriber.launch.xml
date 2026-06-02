@@ -49,8 +49,8 @@
         <remap from="/okvis/cam0/image_raw" to="/alphasense/cam0/image_raw"/>
         <remap from="/okvis/cam1/image_raw" to="/alphasense/cam1/image_raw"/>
         <remap from="/okvis/cam2/image_raw" to="/alphasense/cam2/image_raw"/>
-        <remap from="/okvis/cam3/image_raw" to="/alphasense/cam3/image_raw"/>
-        <remap from="/okvis/cam4/image_raw" to="/alphasense/cam4/image_raw"/>
+        <!-- <remap from="/okvis/cam3/image_raw" to="/alphasense/cam3/image_raw"/>
+        <remap from="/okvis/cam4/image_raw" to="/alphasense/cam4/image_raw"/> -->
         <remap from="/okvis/lidar" to="/hesai/pandar"/>
         <remap from="/okvis/imu0" to="/alphasense/imu"/>
     </node>
