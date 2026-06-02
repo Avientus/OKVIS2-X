@@ -30,35 +30,80 @@ cameras:
   #    mapping_rectification: false,
   #    slam_use: okvis} #none, okvis, okvis-depth, okvis-virtual
 
-  - {T_SC: [0., 0.0, 1, 0.174,
+    - {T_SC: [0., 0.0, 1, 0.174,
             1.0  , 0.0, 0.0  , -0.1  ,
            0.0, 1.0, 0.0, 0.142,
             0.0  , 0.0, 0.0  , 1.0] ,
-     image_dimension: [640, 360],
-     distortion_type: radialtangential,
-     distortion_coefficients: [0, 0, 0, 0],
-     focal_length: [222.40579376759968, 222.40579376759968],
-     principal_point: [319.5, 179.5],
-     cam_model: pinhole,
-     camera_type: gray+depth,
-     mapping: true,
-     mapping_rectification: false,
-     slam_use: okvis} # Frontal camera (cam 0)
+        image_dimension: [640, 360],
+        distortion_type: radialtangential,
+        distortion_coefficients: [0, 0, 0, 0],
+        focal_length: [222.40579376759968, 222.40579376759968],
+        principal_point: [319.5, 179.5],
+        cam_model: pinhole,
+        camera_type: gray+depth,
+        mapping: true,
+        mapping_rectification: false,
+        slam_use: okvis} # Frontal camera (cam 0)
      
-  - {T_SC: [0., 0.0, 1, 0.174,
+    - {T_SC: [0., 0.0, 1, 0.174,
             1.0  , 0.0, 0.0  , 0.1  ,
            0.0, 1.0, 0.0, 0.142,
             0.0  , 0.0, 0.0  , 1.0] ,
-     image_dimension: [640, 360],
-     distortion_coefficients: [0.0, 0.0, 0.0, 0.0],
-     distortion_type: radialtangential,
-     focal_length: [222.40579376759968, 222.40579376759968],
-     principal_point: [319.5, 179.5],
-     cam_model: pinhole,
-     camera_type: gray, #gray, rgb, gray+depth, rgb+depth 
-     mapping: true,
-     mapping_rectification: false,
-     slam_use: okvis} #none, okvis, okvis-depth, okvis-virtual
+        image_dimension: [640, 360],
+        distortion_coefficients: [0.0, 0.0, 0.0, 0.0],
+        distortion_type: radialtangential,
+        focal_length: [222.40579376759968, 222.40579376759968],
+        principal_point: [319.5, 179.5],
+        cam_model: pinhole,
+        camera_type: gray, #gray, rgb, gray+depth, rgb+depth 
+        mapping: true,
+        mapping_rectification: false,
+        slam_use: okvis} #none, okvis, okvis-depth, okvis-virtual
+
+#    - {T_SC: [0., -0.4226, 0.9063, 0.174,
+#             1.0  , 0.0, 0.0  , -0.1  ,
+#            0.0, 0.9063, 0.4226, 0.142,
+#             0.0  , 0.0, 0.0  , 1.0] ,
+#      image_dimension: [640, 360],
+#      distortion_type: radialtangential,
+#      distortion_coefficients: [0, 0, 0, 0],
+#      focal_length: [222.40579376759968, 222.40579376759968],
+#      principal_point: [319.5, 179.5],
+#      cam_model: pinhole,
+#      camera_type: gray+depth,
+#      mapping: true,
+#      mapping_rectification: false,
+#      slam_use: okvis} # Frontal camera (cam 0)
+     
+#    - {T_SC: [0., -0.4226, 0.9063, 0.174,
+#             1.0  , 0.0, 0.0  , 0.1  ,
+#            0.0, 0.9063, 0.4226, 0.142,
+#             0.0  , 0.0, 0.0  , 1.0] ,
+#      image_dimension: [640, 360],
+#      distortion_coefficients: [0.0, 0.0, 0.0, 0.0],
+#      distortion_type: radialtangential,
+#      focal_length: [222.40579376759968, 222.40579376759968],
+#      principal_point: [319.5, 179.5],
+#      cam_model: pinhole,
+#      camera_type: gray, #gray, rgb, gray+depth, rgb+depth 
+#      mapping: true,
+#      mapping_rectification: false,
+#      slam_use: okvis} #none, okvis, okvis-depth, okvis-virtual
+
+#    - {T_SC: [0., -1.0, 0.0, 0.131,
+#             1.0  , 0.0, 0.0  , 0.0  ,
+#            0.0, 0.0, 1, 0.102,
+#             0.0  , 0.0, 0.0  , 1.0] ,
+#      image_dimension: [640, 360],
+#      distortion_coefficients: [0.0, 0.0, 0.0, 0.0],
+#      distortion_type: radialtangential,
+#      focal_length: [222.40579376759968, 222.40579376759968],
+#      principal_point: [319.5, 179.5],
+#      cam_model: pinhole,
+#      camera_type: gray, #gray, rgb, gray+depth, rgb+depth 
+#      mapping: true,
+#      mapping_rectification: false,
+#      slam_use: okvis} #none, okvis, okvis-depth, okvis-virtual
           
 # camera_parameters:
 #     timestamp_tolerance: 0.005 # KEEP: 5ms is standard, but MUN-FRL is hardware-synced, so this is safe.
@@ -81,7 +126,7 @@ cameras:
 
 camera_parameters:
     timestamp_tolerance: 0.005 # [s] stereo frame out-of-sync tolerance
-    sync_cameras: [0, 1] # the cameras that will be synchronised
+    sync_cameras: [0, 1 ] # the cameras that will be synchronised
     image_delay: 0.0 # [s] timestamp_camera_correct = timestamp_camera - image_delay
     online_calibration: # some parameters to set the online
         do_extrinsics: false  # Simulator has known extrinsics
@@ -130,20 +175,59 @@ camera_parameters:
 #         0.0000, 0.0000, 0.0000, 1.0000]
 
 
+# imu_parameters:
+#     use: true
+#     a_max: 176.0 # acceleration saturation [m/s^2] (PX4 default)
+#     g_max: 7.8 # gyro saturation [rad/s] (PX4 default)
+#     sigma_g_c: 6.5e-02
+#     sigma_a_c: 1.11     # accelerometer noise density [m/s^2/sqrt(Hz)]
+#     sigma_bg: 4.027e-03  # gyro bias prior [rad/s]
+#     sigma_ba: 4.827e-01 # accelerometer bias prior [m/s^2]
+#     sigma_gw_c: 3.57e-04 # gyro drift noise density [rad/s^s/sqrt(Hz)]
+#     sigma_aw_c: 3.94e-02 # accelerometer drift noise density [m/s^2/sqrt(Hz)]
+#     g: 9.81007 # Earth's acceleration due to gravity [m/s^2]
+#     g0: [0.0, 0.0, 0.0] # initial gyroscope bias [rad/s]
+#     a0: [0.0, 0.0, 0.0] # initial accelerometer bias [m/s^2]
+#     s_a: [1.0,1.0,1.0]
+
+#     T_BS:
+#         [1.0000, 0.0000, 0.0000, 0.0000,
+#          0.0000, -1.0000, 0.0000, 0.0000,
+#          0.0000, 0.0000, -1.0000, 0.0000,
+#          0.0000, 0.0000, 0.0000, 1.0000]
+
+
+# imu_parameters:
+#     use: true
+#     a_max: 176.0 # acceleration saturation [m/s^2]
+#     g_max: 7.8 # gyro saturation [rad/s]
+#     sigma_g_c: 20.0e-4 # gyro noise density [rad/s/sqrt(Hz)]
+#     sigma_a_c: 20.0e-3 # accelerometer noise density [m/s^2/sqrt(Hz)]
+#     sigma_bg: 0.01 # gyro bias prior [rad/s]
+#     sigma_ba: 0.1 # accelerometer bias prior [m/s^2]
+#     sigma_gw_c: 20.0e-5 # gyro drift noise density [rad/s^s/sqrt(Hz)]
+#     sigma_aw_c: 20.0e-3 # accelerometer drift noise density [m/s^2/sqrt(Hz)]
+#     g: 9.81007 # Earth's acceleration due to gravity [m/s^2]
+#     g0: [ 0.0, 0.0, 0.0 ] # initial gyro bias [rad/s]
+#     a0: [ -0.05, 0.09, 0.01 ] # initial accelerometer bias [m/s^2]
+#     s_a: [ 1.0,  1.0, 1.0 ] # scale factor for accelerometer measurements: a_true = s_a * a_meas + b_a
+#     # transform Body-Sensor (IMU)
+
 imu_parameters:
     use: true
-    a_max: 176.0 # acceleration saturation [m/s^2] (PX4 default)
-    g_max: 7.8 # gyro saturation [rad/s] (PX4 default)
-    sigma_g_c: 6.5e-02
-    sigma_a_c: 1.11     # accelerometer noise density [m/s^2/sqrt(Hz)]
-    sigma_bg: 4.027e-02  # gyro bias prior [rad/s]
-    sigma_ba: 4.827e-01 # accelerometer bias prior [m/s^2]
-    sigma_gw_c: 3.57e-04 # gyro drift noise density [rad/s^s/sqrt(Hz)]
-    sigma_aw_c: 3.94e-02 # accelerometer drift noise density [m/s^2/sqrt(Hz)]
+    a_max: 313.922 # acceleration saturation [m/s^2]
+    g_max: 69.813  # gyro saturation [rad/s]
+    sigma_g_c: 8.726646e-04 # gyro noise density [rad/s/sqrt(Hz)]
+    sigma_a_c: 6.37e-03     # accelerometer noise density [m/s^2/sqrt(Hz)]
+    sigma_bg: 1.0e-04 # gyro bias prior [rad/s]
+    sigma_ba: 1.0e-03 # accelerometer bias prior [m/s^2]
+    sigma_gw_c: 1.0e-06 # gyro drift noise density [rad/s^2/sqrt(Hz)]
+    sigma_aw_c: 1.0e-05 # accelerometer drift noise density [m/s^2/sqrt(Hz)]
     g: 9.81007 # Earth's acceleration due to gravity [m/s^2]
     g0: [0.0, 0.0, 0.0] # initial gyroscope bias [rad/s]
     a0: [0.0, 0.0, 0.0] # initial accelerometer bias [m/s^2]
     s_a: [1.0,1.0,1.0]
+
 
     T_BS:
         [1.0000, 0.0000, 0.0000, 0.0000,
@@ -152,20 +236,6 @@ imu_parameters:
          0.0000, 0.0000, 0.0000, 1.0000]
 
 
-# imu_parameters:
-#     use: true
-#     a_max: 163.84 # acceleration saturation [m/s^2]
-#     g_max: 5.72 # gyro saturation [rad/s]
-#     sigma_g_c: 6.519797189220827e-04
-#     sigma_a_c: 0.011220644611759998     # accelerometer noise density [m/s^2/sqrt(Hz)]
-#     sigma_bg: 4.027038e-03  # gyro bias prior [rad/s]
-#     sigma_ba: 4.827057e-02 # accelerometer bias prior [m/s^2]
-#     sigma_gw_c: 3.5772073471410063e-05 # gyro drift noise density [rad/s^s/sqrt(Hz)]
-#     sigma_aw_c: 3.940336355177357e-03 # accelerometer drift noise density [m/s^2/sqrt(Hz)]
-#     g: 9.81007 # Earth's acceleration due to gravity [m/s^2]
-#     g0: [0.0, 0.0, 0.0] # initial gyroscope bias [rad/s]
-#     a0: [0.0, 0.0, 0.0] # initial accelerometer bias [m/s^2]
-#     s_a: [1.0,1.0,1.0]
 
 # # imu_parameters:
 # #     use: true
