@@ -455,6 +455,11 @@ You find examples for the datasets used in the paper in the respective subfolder
   ```bash
   ros2 service call /okvis/shutdown std_srvs/srv/SetBool
   ```
+  * **Image QoS**: by default image subscribers use `RELIABLE` QoS. If your camera driver publishes with `BEST_EFFORT` QoS (common on drones/embedded hardware using `rmw_qos_profile_sensor_data`), set `image_best_effort_qos:=true` at launch — otherwise ROS2 will silently refuse the subscription and OKVIS receives no images:
+  ```bash
+  ros2 launch okvis okvis2x_node_subscriber.launch.xml config_filename:=[config] se_config_filename:=[se2_config] \
+      depth_image:=true image_best_effort_qos:=true
+  ```
 </details>
 
 

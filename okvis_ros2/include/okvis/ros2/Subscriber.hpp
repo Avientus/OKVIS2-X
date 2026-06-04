@@ -25,6 +25,7 @@
 
 #include <boost/shared_ptr.hpp>
 #include <rclcpp/rclcpp.hpp>
+#include <rmw/qos_profiles.h>
 #include <image_transport/image_transport.hpp>
 #if __has_include(<cv_bridge/cv_bridge.hpp>) // requires GCC >= 5
   #include <cv_bridge/cv_bridge.hpp>
@@ -81,10 +82,12 @@ class Subscriber
              okvis::Publisher* publisher,
              const okvis::ViParameters& parameters,
              okvis::SubmappingInterface* se_interface = nullptr,
-             bool isDepthCamera = false, bool isLiDAR = false);
+             bool isDepthCamera = false, bool isLiDAR = false,
+             bool imageBestEffortQos = false);
 
   /// @brief Set the node handle. This sets up the callbacks. This is called in the constructor.
-  void setNodeHandle(std::shared_ptr<rclcpp::Node> node, bool isDepthCamera = false, bool isLiDAR = false);
+  void setNodeHandle(std::shared_ptr<rclcpp::Node> node, bool isDepthCamera = false, bool isLiDAR = false,
+                     bool imageBestEffortQos = false);
     
   /// @brief stop callbacks.
   void shutdown();
@@ -145,6 +148,7 @@ class Subscriber
   std::vector<std::map<uint64_t, cv::Mat>> imagesReceived_; ///< Images obtained&buffered (to sync).
   std::vector<std::map<uint64_t, cv::Mat>> depthImagesReceived_; ///> The depth images obtained and buffered (to sync)
   bool syncDepthImages_ = false;
+  bool imageBestEffortQos_ = false; ///< Use BEST_EFFORT QoS for image subscriptions.
 };
 }
 

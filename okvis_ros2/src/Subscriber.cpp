@@ -39,24 +39,28 @@ Subscriber::~Subscriber()
     imgTransport_.reset();
 }
 
-Subscriber::Subscriber(std::shared_ptr<rclcpp::Node> node, 
+Subscriber::Subscriber(std::shared_ptr<rclcpp::Node> node,
                        okvis::ViInterface* viInterfacePtr,
-                       okvis::Publisher* publisher, 
+                       okvis::Publisher* publisher,
                        const okvis::ViParameters& parameters,
                        okvis::SubmappingInterface* seInterface,
-                       bool isDepthCamera, bool isLiDAR)
+                       bool isDepthCamera, bool isLiDAR,
+                       bool imageBestEffortQos)
 {
   viInterface_ = viInterfacePtr;
   seInterface_ = seInterface;
   publisher_ = publisher;
   parameters_ = parameters;
-  setNodeHandle(node, isDepthCamera, isLiDAR);
+  imageBestEffortQos_ = imageBestEffortQos;
+  setNodeHandle(node, isDepthCamera, isLiDAR, imageBestEffortQos);
 }
 
 void Subscriber::setNodeHandle(std::shared_ptr<rclcpp::Node> node,
-                               bool isDepthCamera, bool isLiDAR)
+                               bool isDepthCamera, bool isLiDAR,
+                               bool imageBestEffortQos)
 {
   node_ = node;
+  imageBestEffortQos_ = imageBestEffortQos;
 
   imageSubscribers_.resize(parameters_.nCameraSystem.numCameras());
   depthImageSubscribers_.resize(parameters_.nCameraSystem.numCameras());
@@ -68,17 +72,25 @@ void Subscriber::setNodeHandle(std::shared_ptr<rclcpp::Node> node,
     imgTransport_.reset();
   imgTransport_ = std::make_shared<image_transport::ImageTransport>(node_);
 
+  const rmw_qos_profile_t image_qos =
+      imageBestEffortQos_ ? rmw_qos_profile_sensor_data : rmw_qos_profile_default;
+
+  if(imageBestEffortQos_) {
+    RCLCPP_INFO(node_->get_logger(), "Image subscribers using BEST_EFFORT QoS");
+  }
+
   // set up callbacks
   for (size_t i = 0; i < parameters_.nCameraSystem.numCameras(); ++i) {
     imageSubscribers_[i] = imgTransport_->subscribe(
-        "/okvis/cam" + std::to_string(i) +"/image_raw",
+        "/okvis/cam" + std::to_string(i) + "/image_raw",
         30 * parameters_.nCameraSystem.numCameras(),
         std::bind(&Subscriber::imageCallback, this, std::placeholders::_1, i,
-          parameters_.nCameraSystem.cameraType(i).isColour));
+          parameters_.nCameraSystem.cameraType(i).isColour),
+        nullptr, nullptr, image_qos);
   }
 
   subImu_ = node_->create_subscription<sensor_msgs::msg::Imu>(
-      "/okvis/imu0", 1000, 
+      "/okvis/imu0", 1000,
       std::bind(&Subscriber::imuCallback, this, std::placeholders::_1));
 
   if(isDepthCamera){
@@ -89,7 +101,8 @@ void Subscriber::setNodeHandle(std::shared_ptr<rclcpp::Node> node,
       depthImageSubscribers_[i] = imgTransport_->subscribe(
         "/okvis/depth" + std::to_string(i) + "/image_raw",
         30 * parameters_.nCameraSystem.numCameras(),
-        std::bind(&Subscriber::depthCallback, this, std::placeholders::_1, i));
+        std::bind(&Subscriber::depthCallback, this, std::placeholders::_1, i),
+        nullptr, nullptr, image_qos);
     }
   }
 

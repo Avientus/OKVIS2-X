@@ -81,6 +81,7 @@ int main(int argc, char **argv) {
   node->declare_parameter("mesh_cutoff_z", std::numeric_limits<float>::max());
   node->declare_parameter("save_submap_meshes", false);
   node->declare_parameter("csv_path", "/tmp/");
+  node->declare_parameter("image_best_effort_qos", false);
 
   node->get_parameter("config_filename", configFilename);
   if (configFilename.compare("")==0){
@@ -224,7 +225,9 @@ int main(int argc, char **argv) {
   #else
     // subscriber
     #if defined(OKVIS_STEREO_NETWORK_PROCESSOR) || defined(OKVIS_DFUSION_NETWORK_PROCESSOR)
-        std::shared_ptr<okvis::Subscriber> subscriber(new okvis::Subscriber(node, &processor, &publisher, parameters, &processor.se_interface_, false, false));
+        bool image_best_effort_qos = false;
+        node->get_parameter("image_best_effort_qos", image_best_effort_qos);
+        std::shared_ptr<okvis::Subscriber> subscriber(new okvis::Subscriber(node, &processor, &publisher, parameters, &processor.se_interface_, false, false, image_best_effort_qos));
     #endif
   #endif
 

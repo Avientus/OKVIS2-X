@@ -70,6 +70,7 @@ int main(int argc, char **argv) {
   node->declare_parameter("mesh_cutoff_z", std::numeric_limits<float>::max());
   node->declare_parameter("save_submap_meshes", false);
   node->declare_parameter("csv_path", "/tmp/");
+  node->declare_parameter("image_best_effort_qos", false);
 
   node->get_parameter("config_filename", configFilename);
   if (configFilename.compare("")==0){
@@ -243,6 +244,9 @@ int main(int argc, char **argv) {
     }
 
   #else
+    bool image_best_effort_qos = false;
+    node->get_parameter("image_best_effort_qos", image_best_effort_qos);
+
     std::shared_ptr<okvis::Subscriber> subscriber;
     if(parameters.output.enable_submapping){
       const bool isDepth = parameters.lidar ? false : true;
@@ -250,12 +254,14 @@ int main(int argc, char **argv) {
       seInterface.reset(new okvis::SubmappingInterface(mapConfig, dataConfig, submapConfig, parameters));
       seInterface->setT_BS(parameters.imu.T_BS);
       seInterface->setBlocking(false);
-      
+
       subscriber.reset(new okvis::Subscriber(node, &estimator, &publisher, parameters,
-                                              seInterface.get(), isDepth, isLidar));
+                                              seInterface.get(), isDepth, isLidar,
+                                              image_best_effort_qos));
     }
     else {
-      subscriber.reset(new okvis::Subscriber(node, &estimator, &publisher, parameters));
+      subscriber.reset(new okvis::Subscriber(node, &estimator, &publisher, parameters,
+                                              nullptr, false, false, image_best_effort_qos));
     }
   #endif
 
