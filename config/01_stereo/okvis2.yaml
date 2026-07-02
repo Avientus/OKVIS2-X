@@ -69,10 +69,10 @@ imu_parameters:
 
 # frontend: detection etc.
 frontend_parameters:
-    detection_threshold: 30.0 # detection threshold. By default the uniformity radius in pixels
+    detection_threshold: 38.0 # detection threshold. By default the uniformity radius in pixels
     absolute_threshold: 200.0 # absolute Harris corner threshold (noise floor)
-    matching_threshold: 40.0 # BRISK descriptor matching threshold
-    octaves: 2 # number of octaves for detection. 0 means single-scale at highest resolution
+    matching_threshold: 60.0 # BRISK descriptor matching threshold
+    octaves: 0 # number of octaves for detection. 0 means single-scale at highest resolution
     max_num_keypoints: 700 # restrict to a maximum of this many keypoints per image (strongest ones)
     keyframe_overlap: 0.60 # minimum field-of-view overlap
     use_cnn: true # use the CNN (if available) to filter out dynamic content / sky
@@ -87,7 +87,7 @@ estimator_parameters:
     do_loop_closures: true # whether to do VI-SLAM or VIO
     do_final_ba: false # Whether to run a full final BA
     enforce_realtime: true # whether to limit the time budget for optimisation
-    realtime_min_iterations: 2 # minimum number of iterations always performed
+    realtime_min_iterations: 3 # minimum number of iterations always performed
     realtime_max_iterations: 10 # never do more than these, even if not converged
     realtime_time_limit: 0.035 # time budget for realtime optimisation [s]
     realtime_num_threads: 4 # number of threads for the realtime optimisation
