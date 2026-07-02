@@ -363,11 +363,11 @@ void Subscriber::synchronizeData() {
         }
       }
       else if(!viInterface_->addImages(tcheck, images, depthImages)) {
-        LOG(WARNING) << "Frame not added at t="<< tcheck;
+        LOG_EVERY_N(WARNING, 10) << "Frame not added at t="<< tcheck;
       }
       #else
       if(!viInterface_->addImages(tcheck, images, depthImages)) {
-        LOG(WARNING) << "Frame not added at t="<< tcheck;
+        LOG_EVERY_N(WARNING, 10) << "Frame not added at t="<< tcheck;
       }
       #endif
       if(!isProcessor && syncDepthImages_) {

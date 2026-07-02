@@ -273,7 +273,11 @@ bool ThreadedSlam::addImuMeasurement(const okvis::Time& stamp,
   {
     if(imuMeasurementsReceived_.PushNonBlockingDroppingIfFull(
          imu_measurement, size_t(imuQueueSize))) {
+<<<<<<< Updated upstream
       // LOG(WARNING) << "imu measurement drop ";
+=======
+      LOG_EVERY_N(WARNING, 500) << "imu measurement drop ";
+>>>>>>> Stashed changes
       return false;
     }
     return true;
@@ -307,7 +311,7 @@ bool ThreadedSlam::addLidarMeasurement(const okvis::Time &stamp,
       drop = lidarMeasurementsReceived_.PushNonBlockingDroppingIfFull(
               lidarMeasurement, size_t(lidarQueueSize));
       if(drop)
-        LOG(WARNING) << "lidar measurement drop ";
+        LOG_EVERY_N(WARNING, 20) << "lidar measurement drop ";
     }
     return drop;
   }
@@ -339,8 +343,8 @@ bool ThreadedSlam::addDepthMeasurement(const okvis::Time &stamp,
     }
     else {
       drop = depthMeasurementsReceived_.PushNonBlockingDroppingIfFull(depthMeasurement, depthQueueSize);
-      if (drop) 
-        LOG(WARNING) << "Depth measurement drop ";
+      if (drop)
+        LOG_EVERY_N(WARNING, 30) << "Depth measurement drop ";
     }
     return drop;
   }

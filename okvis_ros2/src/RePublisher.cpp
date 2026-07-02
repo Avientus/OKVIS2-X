@@ -268,7 +268,7 @@ void RePublisher::synchronizeData(const okvis::Time& stamp,
         imagesReceived_.at(i).erase(imagesReceived_.at(i).begin(), end);
         const int size1 = imagesReceived_.at(i).size();
         if (size0-size1>1) {
-          LOG(WARNING) << "dropped " << size0-size1-1 << " unsyncable frame(s) of camera " << i << " before t=" << tcheck;
+          LOG_EVERY_N(WARNING, 10) << "dropped " << size0-size1-1 << " unsyncable frame(s) of camera " << i << " before t=" << tcheck;
         }
       } 
 
@@ -279,7 +279,7 @@ void RePublisher::synchronizeData(const okvis::Time& stamp,
         depthImagesReceived_.at(0).erase(depthImagesReceived_.at(0).begin(), end);
         const int size1 = depthImagesReceived_.at(0).size();
         if (size0-size1>1) {
-          LOG(WARNING) << "dropped " << size0-size1-1 << " unsyncable frame(s) of depth camera before t=" << tcheck;
+          LOG_EVERY_N(WARNING, 10) << "dropped " << size0-size1-1 << " unsyncable frame(s) of depth camera before t=" << tcheck;
         }
       }
       break;
