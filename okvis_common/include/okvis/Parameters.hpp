@@ -173,6 +173,18 @@ struct LidarParameters {
     float azimuth_resolution_angle; ///< Resolution angle for the azimuth of the LiDAR sensor
 };
 
+/**
+ * @brief Struct to specify parameters of Radar sensor
+ */
+struct RadarParameters {
+    EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+    okvis::kinematics::Transformation T_IR;   ///< Transformation from IMU to Radar frame.
+
+    /// Default Constructor
+    RadarParameters() : T_IR(okvis::kinematics::Transformation())
+                      {}
+};
+
 
 /// @brief Struct to combine all parameters and settings.
 struct ViParameters {
@@ -182,6 +194,7 @@ struct ViParameters {
   ImuParameters imu; ///< Imu parameters.
   std::optional<GpsParameters> gps; ///< Gps parameters.
   std::optional<LidarParameters> lidar; ///< LiDAR parameters
+  std::vector<RadarParameters> radars; ///< Radar parameters (supports multiple radars)
   FrontendParameters frontend; ///< Frontend parameters.
   EstimatorParameters estimator; ///< Estimator parameters.
   OutputParameters output; ///< Output parameters.

@@ -1,44 +1,60 @@
 %YAML:1.0
 cameras:
      - {T_SC:
-        [0.906, 0.0, 0.422, 0.174,
-         0.0,  1,   0.0,  0.1,
-         -0.422,  0, 0.906, 0.142,
-         0.0,  0.0,   0.0,   1.0],
+        [ 0.00393442, -0.99997721, -0.00548654,  0.01221042,
+          0.99958204,  0.00408989, -0.0286185 , -0.08397237,
+          0.02864028, -0.00537165,  0.99957535, -0.12827547,
+          0.        ,  0.        ,  0.        ,  1.        ],
         image_dimension: [640, 360],
-        distortion_coefficients: [0.0, 0.0, 0.0, 0.0],
+        distortion_coefficients: [-0.039242688090111895, 0.016448059436087913, -0.0746919585185806, 0.06824503995726983],
         distortion_type: equidistant,
-        focal_length: [222.40579376759968, 222.40579376759968],
-        principal_point: [319.5, 179.5],
+        focal_length: [366.31251657196265, 366.5528356670127],
+        principal_point: [314.5304234663801, 167.13420850691364],
         cam_model: pinhole,
-        camera_type: gray+depth, #gray, rgb, gray+depth, rgb+depth
+        camera_type: gray+depth,
         mapping: true,
         mapping_rectification: true,
         slam_use: okvis} #none, okvis, okvis-depth, okvis-virtual
 
      - {T_SC:
-        [0.906, 0.0, 0.422, 0.174,
-         0.0,  1,   0.0,  -0.1,
-         -0.422,  0, 0.906, 0.142,
-         0.0,  0.0,   0.0,   1.0],
+        [ 0.06333498, -0.40471808,  0.91224556,  0.16446236,
+          0.99732787, -0.00768273, -0.07265048,  0.1076323 ,
+          0.0364115,   0.91440924,  0.40315003,  0.06840818,
+          0.       ,   0.        ,  0.        ,  1.        ],
         image_dimension: [640, 360],
-        distortion_coefficients: [0.0, 0.0, 0.0, 0.0],
+        distortion_coefficients: [-0.026993435576534025, -0.03902980635547623, 0.08349088768080011, -0.05623809067668715],
         distortion_type: equidistant,
-        focal_length: [222.40579376759968, 222.40579376759968],
-        principal_point: [319.5, 179.5],
+        focal_length: [362.8404313070718, 363.0587464822241],
+        principal_point: [334.96044254654174, 179.23026797803948],
         cam_model: pinhole,
         camera_type: gray+depth, #gray, rgb, gray+depth, rgb+depth
-        mapping: true,
         mapping_rectification: true,
         slam_use: okvis} #none, okvis, okvis-depth, okvis-virtual
+
+    # - {T_SC:
+    #    [0.00393442,  0.99958204,  0.02864028,  0.08756308,
+    #     -0.99997721,  0.00408989, -0.00537165,  0.01186453,
+    #     -0.00548654, -0.0286185,   0.99957535,  0.12588483,
+    #     0.0, 0.0, 0.0, 1.0],
+    #    image_dimension: [640, 360],
+    #    distortion_coefficients: [-0.039242688090111895, 0.016448059436087913, -0.0746919585185806, >
+    #    distortion_type: equidistant,
+    #    focal_length: [366.31251657196265, 366.5528356670127],
+    #    principal_point: [314.5304234663801, 167.13420850691364],
+    #    cam_model: pinhole,
+    #    camera_type: gray+depth,
+    #    mapping: true,
+    #    mapping_rectification: true,
+    #    slam_use: okvis} #none, okvis, okvis-depth, okvis-virtual
+
 
 # additional camera parameters
 camera_parameters:
     timestamp_tolerance: 0.005 # [s] stereo frame out-of-sync tolerance
     sync_cameras: [0, 1] # the cameras that will be synchronised
-    image_delay: 0.0 # [s] timestamp_camera_correct = timestamp_camera - image_delay
+    image_delay: 0.021 # [s] timestamp_camera_correct = timestamp_camera - image_delay
     online_calibration: # some parameters to set the online
-        do_extrinsics: false # Do we online-calibrate extrinsics?
+        do_extrinsics: true # Do we online-calibrate extrinsics?
         do_extrinsics_final_ba: false # Do we calibrate extrinsics in final BA?
         sigma_r: 0.01 # T_SCi position prior stdev [m]
         sigma_alpha: 0.1 # T_SCi orientation prior stdev [rad]
@@ -51,32 +67,12 @@ imu_parameters:
     use: true
     a_max: 163.84 # acceleration saturation [m/s^2]
     g_max: 5.72 # gyro saturation [rad/s]
-    # === IMU NOISE PRESETS — uncomment one block at a time ===
-    #
-    # PRESET 1: Real sensor
-    # sigma_g_c: 6.519797189220827e-04
-    # sigma_a_c: 0.011220644611759998
-    # sigma_bg: 4.027038e-03
-    # sigma_ba: 4.827057e-02
-    # sigma_gw_c: 3.5772073471410063e-05
-    # sigma_aw_c: 3.940336355177357e-03
-    #
-    # PRESET 2: Sim — high IMU trust (ACTIVE)
-    # sigma_g_c: 1.0e-04
-    # sigma_a_c: 1.0e-03
-    # sigma_bg: 1.0e-04
-    # sigma_ba: 1.0e-03
-    # sigma_gw_c: 1.0e-06
-    # sigma_aw_c: 1.0e-04
-    #
-    # PRESET 3: Sim — low IMU trust (more weight on vision)
-    sigma_g_c: 2.0e-03
-    sigma_a_c: 3.0e-02
-    sigma_bg: 1.0e-02
-    sigma_ba: 1.0e-01
-    sigma_gw_c: 1.0e-04
-    sigma_aw_c: 1.0e-02
-
+    sigma_g_c: 0.006447192398374904
+    sigma_a_c: 0.1041716817202322     # accelerometer noise density [m/s^2/sqrt(Hz)]
+    sigma_bg: 4.027038e-03  # gyro bias prior [rad/s]
+    sigma_ba: 4.827057e-02 # accelerometer bias prior [m/s^2]
+    sigma_gw_c: 5.4968240967256775e-04 # gyro drift noise density [rad/s^s/sqrt(Hz)]
+    sigma_aw_c: 0.0035309908618458486 # accelerometer drift noise density [m/s^2/sqrt(Hz)]
     g: 9.81007 # Earth's acceleration due to gravity [m/s^2]
     g0: [0.0, 0.0, 0.0] # initial gyroscope bias [rad/s]
     a0: [0.0, 0.0, 0.0] # initial accelerometer bias [m/s^2]
@@ -84,8 +80,8 @@ imu_parameters:
 
     T_BS:
         [1.0000, 0.0000, 0.0000, 0.0000,
-         0.0000, -1.0000, 0.0000, 0.0000,
-         0.0000, 0.0000, -1.0000, 0.0000,
+         0.0000, 1.0000, 0.0000, 0.0000,
+         0.0000, 0.0000, 1.0000, 0.0000,
          0.0000, 0.0000, 0.0000, 1.0000]
 
 # frontend: detection etc.
@@ -105,7 +101,7 @@ frontend_parameters:
 estimator_parameters:
     num_keyframes: 5 # number of keyframes in optimisation window
     num_loop_closure_frames: 3 # number of loop closure frames in optimisation window
-    num_imu_frames: 5 # number of frames linked by most recent nonlinear IMU error terms (real: 3)
+    num_imu_frames: 3 # number of frames linked by most recent nonlinear IMU error terms
     do_loop_closures: true # whether to do VI-SLAM or VIO
     do_final_ba: true # Whether to run a full final BA
     enforce_realtime: true # whether to limit the time budget for optimisation

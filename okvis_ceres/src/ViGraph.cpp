@@ -1,4 +1,4 @@
-﻿/**
+/**
  * OKVIS2-X - Open Keyframe-based Visual-Inertial SLAM Configurable with Dense 
  * Depth or LiDAR, and GNSS
  *
@@ -234,6 +234,7 @@ ViGraph::ViGraph() : globCartesianFrame_(earth_)
 {
   cauchyLossFunctionPtr_.reset(new ::ceres::CauchyLoss(1.0));
   cauchyGpsLossFunctionPtr_.reset(new ::ceres::CauchyLoss(3.0));
+  cauchyRadarLossFunctionPtr_.reset(new ::ceres::CauchyLoss(3.0));
   tukeyDepthLossFunctionPtr_.reset(new ::ceres::TukeyLoss(0.1));
   tukeyLidarLossFunctionPtr_.reset(new ::ceres::TukeyLoss(2.0));
   ::ceres::Problem::Options problemOptions;
@@ -273,6 +274,12 @@ int ViGraph::addGps(const GpsParameters& gpsParameters) {
   }
   gpsParametersVec_.push_back(gpsParameters);
   return static_cast<int>(gpsParametersVec_.size()) - 1;
+}
+
+// Add a radar sensor to the configuration.
+int ViGraph::addRadar(const RadarParameters& radarParameters) {
+  radarParametersVec_.push_back(radarParameters);
+  return static_cast<int>(radarParametersVec_.size()) - 1;
 }
 
 StateId ViGraph::addStatesInitialise(
@@ -475,7 +482,7 @@ StateId ViGraph::addStatesPropagate(const Time &timestamp,
   // GPS trafo: point back to initial parameter blocj
   state.T_GW = lastState.T_GW;
   state.GpsFactors.clear();
-
+  state.RadarFactors.clear();
   states_[id] = state; // actually add...
   AnyState anyState;
   anyState.timestamp = state.timestamp;
@@ -1000,6 +1007,177 @@ bool ViGraph::addGpsMeasurement(StateId poseId, GpsMeasurement &gpsMeas, const I
                                                                    state.pose->parameters(),state.speedAndBias->parameters(), state.T_GW->parameters());
     }
     state.GpsFactors.push_back(newGpsFactor);
+
+    return true;
+
+}
+
+bool ViGraph::addRadarMeasurement(StateId poseId, const RadarMeasurement &radarMeas, const ImuMeasurementDeque &imuMeasurements, const Eigen::Vector3d &omega_S_tr){
+
+    OKVIS_ASSERT_TRUE(Exception, states_.count(poseId), "stateId " << poseId.value() << " not found")
+    OKVIS_ASSERT_TRUE(Exception, (radarMeas.timeStamp >= states_.at(poseId).timestamp), "Radar measurement too old to add to state" )
+    
+    // Validate IMU measurements span the time interval
+    if(!(imuMeasurements.front().timeStamp <= states_.at(poseId).timestamp)){
+      LOG(WARNING) << "IMU Measurements for adding radar error are not old enough" << std::endl;
+      return false;
+    }
+    OKVIS_ASSERT_TRUE(Exception, (imuMeasurements.back().timeStamp >= radarMeas.timeStamp), "IMU measurements do not cover radar measurement");
+    
+    // Validate radar ID is within bounds
+    int radarId = radarMeas.sensorId;
+    if (radarId < 0 || radarId >= static_cast<int>(radarParametersVec_.size())) {
+      LOG(ERROR) << "Radar ID " << radarId << " out of bounds. Available radars: " << radarParametersVec_.size();
+      return false;
+    }
+
+    // radarStates_.insert(poseId); // Save states that carry radar measurements, not needed
+    State & state = states_.at(poseId); // Obtain reference to state
+    RadarFactor newRadarFactor; // Create new radar error term
+
+    // Get radar parameters for this radar ID
+    const RadarParameters & radarParameters = radarParametersVec_[radarId];
+    
+    // Create error term: RadarErrorAsynchronous(radarId, velocity, information, imuMeasurements, imuParameters, tk, tr, omega_S_tr, radarParameters)
+    // tk = state.timestamp (state time), tr = radarMeas.timeStamp (radar measurement time)
+    newRadarFactor.errorTerm.reset(new ceres::RadarErrorAsynchronous(
+        static_cast<uint64_t>(radarId), 
+        radarMeas.measurement.velocity, 
+        radarMeas.measurement.covariances.inverse(),
+        imuMeasurements,
+        imuParametersVec_.back(),
+        state.timestamp,  // tk: state timestamp
+        radarMeas.timeStamp,  // tr: radar measurement timestamp
+        omega_S_tr,
+        radarParameters));
+    
+    // Add residual block to ceres problem
+    // Radar error depends on: pose (T_WS) and speedAndBias (v_W, b_g)
+    newRadarFactor.residualBlockId = problem_->AddResidualBlock(
+        newRadarFactor.errorTerm.get(), 
+        cauchyRadarLossFunctionPtr_.get(),
+        state.pose->parameters(),
+        state.speedAndBias->parameters());
+    
+    state.RadarFactors.push_back(newRadarFactor);
+
+    return true;
+
+}
+
+bool ViGraph::addRadarMeasurements(const RadarMeasurementDeque& radarMeasurementDeque, const ImuMeasurementDeque& imuMeasurementDeque, std::deque<StateId>* sids){
+
+  if(radarMeasurementDeque.size() == 0){
+    LOG(ERROR) << "No radar measurements available";
+    return false;
+  }
+
+  if(imuMeasurementDeque.size() == 0){
+    LOG(ERROR) << "No IMU measurements available for radar measurements";
+    return false;
+  }
+
+  // Make sure IMU measurements cover the radar measurement time span
+  if(!(imuMeasurementDeque.front().timeStamp <= radarMeasurementDeque.front().timeStamp)){
+    LOG(ERROR) << "IMU measurements not old enough for radar measurement. Can happen in beginning.";
+    return false;
+  }
+
+  if(!(imuMeasurementDeque.back().timeStamp >= radarMeasurementDeque.back().timeStamp)){
+    LOG(ERROR) << "IMU measurements do not cover all radar measurements";
+    return false;
+  }
+
+  StateId sid; // IDs of states that radar measurements are added to
+  if(sids != nullptr) {
+    sids->clear();
+  }
+
+  // Iterator to traverse states backwards (newest first)
+  auto rIterStates = states_.rbegin();
+  
+  // Reverse iterate measurements (newest first) to match with states
+  for(auto rIterMeas = radarMeasurementDeque.rbegin(); rIterMeas != radarMeasurementDeque.rend(); rIterMeas++){
+    
+    // Push placeholder early to maintain 1:1 alignment with radarMeasurementDeque
+    // It will remain uninitialized if measurement cannot be added
+    if(sids != nullptr)
+      sids->push_front(StateId());
+    
+    // Find the state with timestamp <= measurement timestamp (match to closest/newest state)
+    while(rIterStates != states_.rend() && rIterStates->second.timestamp > rIterMeas->timeStamp){
+      rIterStates++;
+    }
+
+    // If state iterator comes to begin, measurement cannot be added
+    // states_.rend = one past the oldest state
+    if(rIterStates == states_.rend()){
+      LOG(WARNING) << "No state found for radar measurement at timestamp " << rIterMeas->timeStamp;
+      continue;
+    }
+
+    // State ID determined where radar measurement should be added
+    sid = rIterStates->first;
+    
+    okvis::Time stateTimestamp = rIterStates->second.timestamp;
+    okvis::Time radarTimestamp = rIterMeas->timeStamp;
+    
+    // Check IMU coverage for state timestamp (state could be older than oldest radar measurement)
+    if(!(imuMeasurementDeque.front().timeStamp <= stateTimestamp)){
+      LOG(WARNING) << "IMU Measurements for adding radar error dont cover last state timestamp" << std::endl;
+      // Log timestamps for debugging IMU coverage on state
+      LOG(WARNING) << "IMU coverage check failed for state timestamp: " << stateTimestamp
+                << " next state timestamp: " << std::prev(rIterStates)->second.timestamp
+                << " (first IMU: " << imuMeasurementDeque.front().timeStamp 
+                << ", radar ts: " << radarTimestamp 
+                << ", last IMU: " << imuMeasurementDeque.back().timeStamp << ")";
+      continue;
+    }
+    
+    // Extract omega_S_tr by interpolating between IMU measurements around radar timestamp
+    // Find the last measurement before/at tr and first measurement after tr
+    auto imuBefore = imuMeasurementDeque.end();
+    auto imuAfter = imuMeasurementDeque.end();
+    
+    for(auto it = imuMeasurementDeque.begin(); it != imuMeasurementDeque.end(); ++it){
+      if(it->timeStamp <= radarTimestamp){
+        imuBefore = it;
+      } else {
+        imuAfter = it;
+        break;
+      }
+    }
+    
+    Eigen::Vector3d omega_S_tr = Eigen::Vector3d::Zero();
+    // imuBefore should always exist due to coverage check at function start
+    // just in case, check again
+    if(imuBefore == imuMeasurementDeque.end()){
+      LOG(ERROR) << "No IMU measurement before radar timestamp found when searching for omega_S_tr";
+      continue;
+    }
+    
+    if(imuAfter != imuMeasurementDeque.end()){
+      // Interpolate between the two measurements
+      double dt_total = (imuAfter->timeStamp - imuBefore->timeStamp).toSec();
+      double dt_before = (radarTimestamp - imuBefore->timeStamp).toSec();
+      double alpha = dt_before / dt_total; // interpolation factor [0, 1]
+      omega_S_tr = (1.0 - alpha) * imuBefore->measurement.gyroscopes + alpha * imuAfter->measurement.gyroscopes;
+    } else {
+      // radarTimestamp == imuMeasurementDeque.back().timeStamp (exact match at end)
+      omega_S_tr = imuBefore->measurement.gyroscopes;
+    }
+
+    // Add the radar measurement to the matched state
+    // Pass full IMU deque - RadarErrorAsynchronous filters internally (similar to GPS)
+    if(!addRadarMeasurement(sid, *rIterMeas, imuMeasurementDeque, omega_S_tr)){
+      LOG(ERROR) << "Failed to add radar measurement at timestamp " << rIterMeas->timeStamp;
+      continue;
+    }
+    // Mark this measurement as successfully added.
+    if(sids != nullptr) {
+      sids->front() = sid;  // Fill in the placerholder
+    }
+  }
 
     return true;
 

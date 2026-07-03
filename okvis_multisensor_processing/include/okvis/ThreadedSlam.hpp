@@ -153,6 +153,13 @@ class ThreadedSlam : public ViInterface {
                                          double hAcc, double vAcc);
 
     /**
+   * \brief          Add a radar measurement.
+   * \param radarMeas The radar measurement to be added.
+   * \return Returns true normally. False if the previous one has not been processed yet.
+   */
+  virtual bool addRadarMeasurement(const okvis::RadarMeasurement& radarMeas) override final;
+
+    /**
    * \brief             Add alignment constraint
    * @param submap_A_ptr  pointer to map {A}
    * @param submap_B_ptr  pointer to map {B}
@@ -312,6 +319,9 @@ private:
   /// GPS measurement input queue
   threadsafe::Queue<okvis::GpsMeasurement> gpsMeasurementsReceived_;
 
+  /// Radar measurement input queue
+  threadsafe::Queue<okvis::RadarMeasurement> radarMeasurementsReceived_;
+
   /// The queue containing the matching data
   threadsafe::Queue<ViVisualizer::VisualizationData::Ptr> visualisationData_;
 
@@ -360,6 +370,7 @@ private:
   bool firstFrame_ = true; ///< Is it the first frame?
   ImuMeasurementDeque imuMeasurementDeque_;  ///< Stored IMU measurements to be used next.
   GpsMeasurementDeque gpsMeasurementDeque_;  ///< Stored GPS Measurements to be used next.
+  RadarMeasurementDeque radarMeasurementDeque_;  ///< Stored Radar Measurements to be used next.
   LidarMeasurementDeque lidarMeasurementDeque_;  ///< Stored lidar Measurements to be used next.
   DepthMeasurementDeque depthMeasurementDeque_; ///< Stored depth Measurements to be used next.
 

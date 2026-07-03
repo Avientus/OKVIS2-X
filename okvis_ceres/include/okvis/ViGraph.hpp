@@ -58,6 +58,7 @@
 #include <okvis/ceres/DepthError.hpp>
 #include <okvis/ceres/CeresIterationCallback.hpp>
 #include <okvis/ceres/GpsErrorAsynchronous.hpp>
+#include <okvis/ceres/RadarErrorAsynchronous.hpp>
 #include <okvis/ceres/SubmapIcpError.hpp>
 
 #include <GeographicLib/Geocentric.hpp>
@@ -119,6 +120,13 @@ class ViGraph
    * @return index of GPS.
    */
   int addGps(const okvis::GpsParameters & gpsParameters);
+
+  /**
+   * @brief Add a radar sensor to the configuration.
+   * @param radarParameters The radar sensor parameters.
+   * @return index of radar.
+   */
+  int addRadar(const okvis::RadarParameters & radarParameters);
 
   // add states
   /**
@@ -430,6 +438,22 @@ class ViGraph
   /// \param imuMeasurements IMU measurements covering at least time span from state to GPS measurement
   /// \return ResidualBlockId of added residual block
   /*::ceres::ResidualBlockId*/ bool addGpsMeasurement(StateId poseId, GpsMeasurement &gpsMeas, const ImuMeasurementDeque &imuMeasurements);
+
+  /// \brief Add a radar measurement to one pose of the graph.
+  /// \param poseId ID of the pose whose velocity is measured
+  /// \param radarMeas the radar measurement to be added (velocity, covariance, timestamp information)
+  ///                   The radarMeas.timeStamp field must be set (from ROS2: okvis::Time(msg->header.stamp.sec, msg->header.stamp.nanosec))
+  /// \param imuMeasurements IMU measurements covering at least time span from state timestamp to radar measurement timestamp
+  /// \param omega_S_tr Angular velocity in IMU frame at radar measurement time (from IMU, not radar)
+  /// \return True on success
+  bool addRadarMeasurement(StateId poseId, const RadarMeasurement &radarMeas, const ImuMeasurementDeque &imuMeasurements, const Eigen::Vector3d &omega_S_tr);
+
+  /// \brief Add multiple radar measurements, automatically matching them to states by timestamp.
+  /// \param radarMeasurementDeque Queue of radar measurements (radarMeas.timeStamp must be set for each)
+  /// \param imuMeasurementDeque Queue of IMU measurements (needed to extract omega_S at radar timestamps)
+  /// \param[out] sids State IDs of states that the radar measurements are assigned to (optional)
+  /// \return True on success
+  bool addRadarMeasurements(const RadarMeasurementDeque& radarMeasurementDeque, const ImuMeasurementDeque& imuMeasurementDeque, std::deque<StateId>* sids = nullptr);
 
   /// \brief Check which of the GPS Measurements are actually valid (consistent with the estimator based on 3-sigma bound (initialised) or a drift heuristic (re-initialising))
   /// \param inputGpsMeasurementDeque Input GPS Measurements
@@ -778,6 +802,9 @@ protected:
   /// \brief GPS factpr pose graph edge.
   using GpsFactor = GraphEdge<ceres::GpsErrorAsynchronous>;
 
+  /// \brief Radar factor pose graph edge.
+  using RadarFactor = GraphEdge<ceres::RadarErrorAsynchronous>;
+
   /// \brief
   using SubmapAlignmentFactor = GraphEdge<ceres::SubmapIcpError>;
 
@@ -804,6 +831,7 @@ protected:
     std::map<StateId, TwoPoseConstLink> twoPoseConstLinks; ///< All pose graph edges (const).
     std::map<StateId, RelativePoseLink> relativePoseLinks; ///< All relative pose graph edges.
     std::vector<GpsFactor> GpsFactors; ///< All GPS factors
+    std::vector<RadarFactor> RadarFactors; ///< All radar factors
     // ToDo: how to store  submap alignment factors for two states
     std::vector<::ceres::ResidualBlockId> mapResIds;
     std::vector<SubmapAlignmentFactor> submapReferenceLinks;
@@ -831,6 +859,8 @@ protected:
       Eigen::aligned_allocator<okvis::ImuParameters> > imuParametersVec_; ///< IMU parameters.
   std::vector<okvis::GpsParameters,
       Eigen::aligned_allocator<okvis::GpsParameters> > gpsParametersVec_; ///< GPS parameters
+  std::vector<okvis::RadarParameters,
+      Eigen::aligned_allocator<okvis::RadarParameters> > radarParametersVec_; ///< Radar parameters
 
   // this stores the elements of the graph (note the redundancy for spee in the states)
   std::map<StateId, State> states_; ///< Store all states.
@@ -843,6 +873,7 @@ protected:
   kinematics::Transformation T_GW_init_;
 
   std::set<StateId> gpsStates_; /// < Set containing IDs of states connected to global position factors
+  // std::set<StateId> radarStates_; /// < Set containing IDs of states connected to radar velocity factors, not needed
   std::multimap<StateId, GpsMeasurement> gpsInitMap_;
   ImuMeasurementDeque gpsInitImuQueue_; /// < Queue buffering IMU measurements during initialisation
 
@@ -879,6 +910,7 @@ protected:
   // loss function for reprojection errors
   std::shared_ptr< ::ceres::LossFunction> cauchyLossFunctionPtr_; ///< Cauchy loss.
   std::shared_ptr< ::ceres::LossFunction> cauchyGpsLossFunctionPtr_; ///< Cauchy loss for GPS.
+  std::shared_ptr< ::ceres::LossFunction> cauchyRadarLossFunctionPtr_; ///< Cauchy loss for radar.
   std::shared_ptr< ::ceres::LossFunction> huberLossFunctionPtr_; ///< Huber loss.
   std::shared_ptr< ::ceres::LossFunction> tukeyDepthLossFunctionPtr_; ///< Tukey loss for Depth.
   std::shared_ptr< ::ceres::LossFunction> tukeyLidarLossFunctionPtr_; ///< Tukey loss for LiDAR.

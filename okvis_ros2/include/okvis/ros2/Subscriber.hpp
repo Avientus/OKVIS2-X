@@ -34,6 +34,7 @@
 #include <sensor_msgs/msg/image.hpp>
 #include <sensor_msgs/msg/imu.hpp>
 #include <std_msgs/msg/bool.hpp>
+#include <geometry_msgs/msg/twist_with_covariance_stamped.hpp>
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Woverloaded-virtual"
 #include <opencv2/opencv.hpp>
@@ -64,19 +65,6 @@ class Subscriber
 
   /// @brief Destructor (trivial).
   ~Subscriber();
-  /**
-   * @brief Constructor. This will either subscribe to the relevant ROS topics or
-   *        start up the sensor and register the callbacks directly there.
-   * @param node The ROS node handle.
-   * @param viInterfacePtr Pointer to the ViInterface.
-   * @param publisher   Pointer to publisher
-   * @param parameters  VI parameters.
-   */
-  Subscriber(std::shared_ptr<rclcpp::Node> node,
-    okvis::ViInterface* viInterfacePtr,
-    okvis::Publisher* publisher,
-    const okvis::ViParameters& parameters
-  );
 
   /**
    * @brief Constructor. This will either subscribe to the relevant ROS topics or
@@ -92,8 +80,8 @@ class Subscriber
   Subscriber(std::shared_ptr<rclcpp::Node> node, okvis::ViInterface* viInterfacePtr,
              okvis::Publisher* publisher,
              const okvis::ViParameters& parameters,
-             okvis::SubmappingInterface* se_interface,
-             bool isDepthCamera, bool isLiDAR);
+             okvis::SubmappingInterface* se_interface = nullptr,
+             bool isDepthCamera = false, bool isLiDAR = false);
 
   /// @brief Set the node handle. This sets up the callbacks. This is called in the constructor.
   void setNodeHandle(std::shared_ptr<rclcpp::Node> node, bool isDepthCamera = false, bool isLiDAR = false);
@@ -121,6 +109,11 @@ class Subscriber
   /// @param msg the lidar sensor ROS message
   void lidarCallback(const sensor_msgs::msg::PointCloud2& msg);
 
+  /// @brief The radar velocity callback
+  /// @param msg the radar velocity ROS message
+  /// @param radarId the radar sensor ID (0, 1, 2, etc.)
+  void radarVelocityCallback(const geometry_msgs::msg::TwistWithCovarianceStamped::SharedPtr msg, int radarId);
+
   /// @brief function that performs the synchronization of the different ir and depth images for the slam system
   void synchronizeData();
 
@@ -133,6 +126,7 @@ class Subscriber
   std::vector<image_transport::Subscriber> depthImageSubscribers_; ///< The depth image message subscriber
   rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr subImu_;  ///< The IMU message subscriber.
   rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr subLiDAR_;  ///< The LiDAR message subscriber.
+  std::vector<rclcpp::Subscription<geometry_msgs::msg::TwistWithCovarianceStamped>::SharedPtr> radarSubscribers_;  ///< The Radar velocity message subscribers.
   std::mutex time_mutex_; ///< Lock when accessing time
 
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr gtPoses_;
@@ -144,7 +138,7 @@ class Subscriber
   /// @}
   
   okvis::ViInterface* viInterface_ = nullptr;   ///< The VioInterface. (E.g. ThreadedSlam).
-  okvis::SubmappingInterface* seInterface_; ///< The interface with SuperEight2
+  okvis::SubmappingInterface* seInterface_ = nullptr; ///< The interface with SuperEight2
   okvis::Publisher* publisher_ = nullptr;  ///< Publisher for IMU propagation.
   okvis::ViParameters parameters_;  ///< The parameters and settings.
   

@@ -181,4 +181,8 @@ bool Processor::addDepthMeasurement(const okvis::Time &stamp,
                                     const std::optional<cv::Mat> &sigmaImage) {
   return slam_.addDepthMeasurement(stamp, depthImage);}
 
+bool Processor::addRadarMeasurement(const okvis::RadarMeasurement& radarMeas) {
+  return slam_.addRadarMeasurement(radarMeas);
+}
+
 }

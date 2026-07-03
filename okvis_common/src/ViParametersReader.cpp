@@ -370,6 +370,28 @@ void ViParametersReader::readConfigFile(const std::string& filename) {
     LOG(INFO) << "No GPS declared";
   }
 
+  // Radar Parameters
+  if(file["radar_parameters"].isSeq() && file["radar_parameters"].size() > 0){
+    viParameters_.radars.clear();
+    size_t radarIdx = 0;
+    for (cv::FileNodeIterator it = file["radar_parameters"].begin();
+        it != file["radar_parameters"].end(); ++it) {
+      okvis::RadarParameters radarParams;
+      if(!getRadarCalibration(*it, radarParams)){
+        LOG(ERROR) << "Could not parse radar " << radarIdx << " config";
+      } else {
+        viParameters_.radars.push_back(radarParams);
+        std::stringstream s;
+        s << radarParams.T_IR.T();
+        LOG(INFO) << "Parsed Radar " << radarIdx << " with T_IR:\n" << s.str();
+        radarIdx++;
+      }
+    }
+    LOG(INFO) << "Parsed " << viParameters_.radars.size() << " radar(s)";
+  } else {
+    LOG(INFO) << "No radars declared";
+  }
+
   // done!
   readConfigFile_ = true;
 }
@@ -639,6 +661,23 @@ bool ViParametersReader::getGpsCalibration(const cv::FileNode& calibrationNode, 
              gpsParameters.yawErrorThreshold);
   parseEntry(calibrationNode, "robust_gps_init",
              gpsParameters.robustGpsInit);
+
+  return true;
+}
+
+bool ViParametersReader::getRadarCalibration(const cv::FileNode& calibrationNode, okvis::RadarParameters& radarParameters){
+
+  if(!calibrationNode["T_IR"].isSeq()){
+    return false;
+  }
+
+  cv::FileNode T_IR_node = calibrationNode["T_IR"];
+  Eigen::Matrix4d T_IR;
+  T_IR << T_IR_node[0], T_IR_node[1], T_IR_node[2], T_IR_node[3],
+          T_IR_node[4], T_IR_node[5], T_IR_node[6], T_IR_node[7],
+          T_IR_node[8], T_IR_node[9], T_IR_node[10], T_IR_node[11],
+          T_IR_node[12], T_IR_node[13], T_IR_node[14], T_IR_node[15];
+  radarParameters.T_IR = okvis::kinematics::Transformation(T_IR);
 
   return true;
 }

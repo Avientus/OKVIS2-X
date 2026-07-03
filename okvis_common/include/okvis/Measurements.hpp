@@ -264,6 +264,30 @@ struct GpsSensorReadings {
 typedef Measurement<GpsSensorReadings> GpsMeasurement;
 typedef std::deque<GpsMeasurement, Eigen::aligned_allocator<GpsMeasurement> > GpsMeasurementDeque;
 
+/// \brief Radar measurements.
+struct RadarSensorReadings {
+  /// \brief Default constructor.
+  RadarSensorReadings()
+      : velocity(),
+        covariances() {
+  }
+  /**
+   * @brief Constructor from velocity and covariance.
+   * @param velocity_ Radar velocity measurement in radar frame.
+   * @param covariances_ Radar measurement covariances.
+   */
+  RadarSensorReadings(const Eigen::Matrix<double,3,1,Eigen::Unaligned>& velocity_,
+                    const Eigen::Matrix<double,3,3,Eigen::Unaligned>& covariances_)
+      : velocity(velocity_),
+        covariances(covariances_) {
+  }
+
+  Eigen::Matrix<double,3,1,Eigen::Unaligned> velocity;     ///< Velocity measurement in radar frame.
+  Eigen::Matrix<double,3,3,Eigen::Unaligned> covariances;  ///< Covariances measurement.
+};
+typedef Measurement<RadarSensorReadings> RadarMeasurement;
+typedef std::deque<RadarMeasurement, Eigen::aligned_allocator<RadarMeasurement> > RadarMeasurementDeque;
+
 }  // namespace okvis
 
 #endif // INCLUDE_OKVIS_MEASUREMENTS_HPP_

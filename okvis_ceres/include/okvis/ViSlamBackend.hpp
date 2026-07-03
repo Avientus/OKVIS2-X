@@ -92,6 +92,13 @@ class ViSlamBackend //: public VioBackendInterface
    */
   int addGps(const okvis::GpsParameters & gpsParameters);
 
+  /**
+   * @brief Add a radar sensor to the configuration.
+   * @param radarParameters The radar sensor parameters.
+   * @return index of radar.
+   */
+  int addRadar(const okvis::RadarParameters & radarParameters);
+
 
   /**
    * @brief Add a pose to the state.
@@ -621,6 +628,12 @@ class ViSlamBackend //: public VioBackendInterface
   /// \return True on success
   bool addGpsMeasurementsOnAllGraphs(GpsMeasurementDeque& gpsMeasurementDeque, ImuMeasurementDeque& imuMeasurementDeque);
 
+  /// \brief Add Radar constraints on all Graph members
+  /// \param radarMeasurementDeque Queue containing a sequence of radar measurements
+  /// \param imuMeasurementDeque Queue containing a sequence of IMU measurements
+  /// \return True on success
+  bool addRadarMeasurementsOnAllGraphs(const RadarMeasurementDeque& radarMeasurementDeque, const ImuMeasurementDeque& imuMeasurementDeque);
+
   /// \brief Check for (and if needed apply) available alignments due to GPS signals
   /// \return True if alignment has been applied, false if not
   bool tryGpsAlignment();
@@ -771,6 +784,16 @@ private:
       bool reInitFlag;
   };
   AlignedVector<AddGpsBacklog> addGpsBacklog_;
+
+  // radar struct for radar backlog
+  struct AddRadarBacklog{
+      EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+      StateId id;
+      RadarMeasurement radarMeasurement;
+      ImuMeasurementDeque imuMeasurements;
+      Eigen::Vector3d omega_S_tr;
+  };
+  AlignedVector<AddRadarBacklog> addRadarBacklog_;
 
   // Backlog for Submap Alignment Constraints
   struct AddSubmapAlignmentBacklog{

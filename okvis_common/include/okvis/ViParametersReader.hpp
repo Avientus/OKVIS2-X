@@ -183,6 +183,14 @@ class ViParametersReader{
    */
   bool getGpsCalibration(const cv::FileNode& calibrationNode, okvis::GpsParameters& gpsParameters);
 
+  /**
+   * @brief Get the radar calibration via the configuration file
+   * @param[in] calibrationNode File node pointing to a single radar parameters.
+   * @param[out] radarParameters Read radar calibration.
+   * @return True if reading and parsing of calibration was successful.
+   */
+  bool getRadarCalibration(const cv::FileNode& calibrationNode, okvis::RadarParameters& radarParameters);
+
 };
 
 }

@@ -1,45 +1,45 @@
 %YAML:1.0
 cameras:
-     - {T_SC:
-        [0.906, 0.0, 0.422, 0.174,
-         0.0,  1,   0.0,  0.1,
-         -0.422,  0, 0.906, 0.142,
-         0.0,  0.0,   0.0,   1.0],
-        image_dimension: [640, 360],
-        distortion_coefficients: [0.0, 0.0, 0.0, 0.0],
-        distortion_type: equidistant,
-        focal_length: [222.40579376759968, 222.40579376759968],
-        principal_point: [319.5, 179.5],
-        cam_model: pinhole,
-        camera_type: gray+depth, #gray, rgb, gray+depth, rgb+depth
-        mapping: true,
-        mapping_rectification: true,
-        slam_use: okvis} #none, okvis, okvis-depth, okvis-virtual
+    # Stereo Left (cam 0)
+  - {T_SC: [-0.07114084, -0.39925794,  0.91407444,  0.0038567,
+            0.99700878, -0.00071059,  0.0772851,  -0.0005779,
+            -0.03020716,  0.91683837,  0.39811422,  0.00217015,
+            0.0  , 0.0, 0.0  , 1.0] ,
+     image_dimension: [640, 360],
+     distortion_type: equidistant,
+     distortion_coefficients: [-0.036659423566449606, 0.01873386072335892, -0.03762330184773268, 0.02041945926074395],
+     focal_length: [363.5578420995749, 363.44352078091345],
+     principal_point: [320.1219054868866, 184.28450088887164],
+     cam_model: pinhole,
+     camera_type: gray+depth,
+     mapping: true,
+     mapping_rectification: false,
+     slam_use: okvis}
+     
 
-     - {T_SC:
-        [0.906, 0.0, 0.422, 0.174,
-         0.0,  1,   0.0,  -0.1,
-         -0.422,  0, 0.906, 0.142,
-         0.0,  0.0,   0.0,   1.0],
-        image_dimension: [640, 360],
-        distortion_coefficients: [0.0, 0.0, 0.0, 0.0],
-        distortion_type: equidistant,
-        focal_length: [222.40579376759968, 222.40579376759968],
-        principal_point: [319.5, 179.5],
-        cam_model: pinhole,
-        camera_type: gray+depth, #gray, rgb, gray+depth, rgb+depth
-        mapping: true,
-        mapping_rectification: true,
-        slam_use: okvis} #none, okvis, okvis-depth, okvis-virtual
-
-# additional camera parameters
+     # Stereo Right (cam 1)
+  - {T_SC: [ 0.06433189, -0.40560566,  0.91178148,  0.00375051,
+             0.99746027, -0.00185226, -0.07120104,  0.19323301,
+             0.0305684,   0.91404629,  0.40445637,  0.00113733,
+            0.0  , 0.0, 0.0  , 1.0] ,
+     image_dimension: [640, 360],
+     distortion_coefficients: [-0.03272986676871673, -0.003245176122440311, 0.011794589260422083, -0.01133065639188429],
+     distortion_type: equidistant,
+     focal_length: [363.16280486995685, 363.00730154124825],
+     principal_point: [334.1653314650457, 184.84724275293215],
+     cam_model: pinhole,
+     camera_type: gray, #gray, rgb, gray+depth, rgb+depth 
+     mapping: true,
+     mapping_rectification: false,
+     slam_use: okvis} #none, okvis, okvis-depth, okvis-virtual
+          
 camera_parameters:
     timestamp_tolerance: 0.005 # [s] stereo frame out-of-sync tolerance
     sync_cameras: [0, 1] # the cameras that will be synchronised
     image_delay: 0.0 # [s] timestamp_camera_correct = timestamp_camera - image_delay
     online_calibration: # some parameters to set the online
-        do_extrinsics: false # Do we online-calibrate extrinsics?
-        do_extrinsics_final_ba: false # Do we calibrate extrinsics in final BA?
+        do_extrinsics: false  # Simulator has known extrinsics
+        do_extrinsics_final_ba: false
         sigma_r: 0.01 # T_SCi position prior stdev [m]
         sigma_alpha: 0.1 # T_SCi orientation prior stdev [rad]
         sigma_r_final_ba: 0.03 # T_SCi position prior stdev in final BA [m]
@@ -47,36 +47,17 @@ camera_parameters:
     deep_stereo_indices: [0,1] # [left, right] camera indices for the stereo network
     fov_scale: 1.0 # Divisor for new focal length which is only used when fisheye stereo rectification for dense mapping.
 
+
 imu_parameters:
     use: true
-    a_max: 163.84 # acceleration saturation [m/s^2]
-    g_max: 5.72 # gyro saturation [rad/s]
-    # === IMU NOISE PRESETS — uncomment one block at a time ===
-    #
-    # PRESET 1: Real sensor
-    # sigma_g_c: 6.519797189220827e-04
-    # sigma_a_c: 0.011220644611759998
-    # sigma_bg: 4.027038e-03
-    # sigma_ba: 4.827057e-02
-    # sigma_gw_c: 3.5772073471410063e-05
-    # sigma_aw_c: 3.940336355177357e-03
-    #
-    # PRESET 2: Sim — high IMU trust (ACTIVE)
-    # sigma_g_c: 1.0e-04
-    # sigma_a_c: 1.0e-03
-    # sigma_bg: 1.0e-04
-    # sigma_ba: 1.0e-03
-    # sigma_gw_c: 1.0e-06
-    # sigma_aw_c: 1.0e-04
-    #
-    # PRESET 3: Sim — low IMU trust (more weight on vision)
-    sigma_g_c: 2.0e-03
-    sigma_a_c: 3.0e-02
-    sigma_bg: 1.0e-02
-    sigma_ba: 1.0e-01
-    sigma_gw_c: 1.0e-04
-    sigma_aw_c: 1.0e-02
-
+    a_max: 176.0 # acceleration saturation [m/s^2] (PX4 default)
+    g_max: 7.8 # gyro saturation [rad/s] (PX4 default)
+    sigma_g_c: 6.447192398374904e-02
+    sigma_a_c: 0.1041716817202322     # accelerometer noise density [m/s^2/sqrt(Hz)]
+    sigma_bg: 4.027e-02  # gyro bias prior [rad/s]
+    sigma_ba: 4.827e-01 # accelerometer bias prior [m/s^2]
+    sigma_gw_c: 5.4968240967256775e-04 # gyro drift noise density [rad/s^s/sqrt(Hz)]
+    sigma_aw_c: 3.5309908618458486e-2 # accelerometer drift noise density [m/s^2/sqrt(Hz)]
     g: 9.81007 # Earth's acceleration due to gravity [m/s^2]
     g0: [0.0, 0.0, 0.0] # initial gyroscope bias [rad/s]
     a0: [0.0, 0.0, 0.0] # initial accelerometer bias [m/s^2]
@@ -84,13 +65,14 @@ imu_parameters:
 
     T_BS:
         [1.0000, 0.0000, 0.0000, 0.0000,
-         0.0000, -1.0000, 0.0000, 0.0000,
-         0.0000, 0.0000, -1.0000, 0.0000,
+         0.0000, 1.0000, 0.0000, 0.0000,
+         0.0000, 0.0000, 1.0000, 0.0000,
          0.0000, 0.0000, 0.0000, 1.0000]
+
 
 # frontend: detection etc.
 frontend_parameters:
-    detection_threshold: 38.0 #42.0 # detection threshold. By default the uniformity radius in pixels
+    detection_threshold: 38.0 # detection threshold. By default the uniformity radius in pixels
     absolute_threshold: 150.0 # absolute Harris corner threshold (noise floor)
     matching_threshold: 60.0 # BRISK descriptor matching threshold
     octaves: 0 # number of octaves for detection. 0 means single-scale at highest resolution
@@ -105,8 +87,8 @@ frontend_parameters:
 estimator_parameters:
     num_keyframes: 5 # number of keyframes in optimisation window
     num_loop_closure_frames: 3 # number of loop closure frames in optimisation window
-    num_imu_frames: 5 # number of frames linked by most recent nonlinear IMU error terms (real: 3)
-    do_loop_closures: true # whether to do VI-SLAM or VIO
+    num_imu_frames: 3 # number of frames linked by most recent nonlinear IMU error terms
+    do_loop_closures: false # whether to do VI-SLAM or VIO
     do_final_ba: true # Whether to run a full final BA
     enforce_realtime: true # whether to limit the time budget for optimisation
     realtime_min_iterations: 3 # minimum number of iterations always performed
@@ -120,7 +102,7 @@ estimator_parameters:
 
 # some options for how and what to output
 output_parameters:
-    display_topview: false # Displays top view of the trajectory. Might become slow for long sequences.
-    display_matches: false  # displays debug video and matches. May be slow.
+    display_topview: true # Displays top view of the trajectory. Might become slow for long sequences.
+    display_matches: true  # displays debug video and matches. May be slow.
     display_overhead: false # debug overhead image. Is slow.
     enable_submapping: true # Enable volumetric submapping

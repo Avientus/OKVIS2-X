@@ -121,6 +121,13 @@ public:
                                    const cv::Mat &depthImage,
                                    const std::optional<cv::Mat> &sigmaImage = std::nullopt) final;
 
+  /**
+   * \brief          Add a radar measurement.
+   * \param radarMeas The radar measurement to be added.
+   * \return Returns true normally. False if the previous one has not been processed yet.
+   */
+  virtual bool addRadarMeasurement(const okvis::RadarMeasurement& radarMeas) final;
+
   /// @brief Set function that handles submaps visualization (blocks version).
   void setSubmapCallback(const okvis::submapCallback &callback);
 

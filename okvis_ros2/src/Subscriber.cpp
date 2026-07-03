@@ -39,17 +39,6 @@ Subscriber::~Subscriber()
     imgTransport_.reset();
 }
 
-Subscriber::Subscriber(std::shared_ptr<rclcpp::Node> node,
-                       okvis::ViInterface* viInterfacePtr,
-                       okvis::Publisher* publisher, 
-                       const okvis::ViParameters& parameters)
-{
-  viInterface_ = viInterfacePtr;
-  publisher_ = publisher;
-  parameters_ = parameters;
-  setNodeHandle(node);
-}
-
 Subscriber::Subscriber(std::shared_ptr<rclcpp::Node> node, 
                        okvis::ViInterface* viInterfacePtr,
                        okvis::Publisher* publisher, 
@@ -108,6 +97,20 @@ void Subscriber::setNodeHandle(std::shared_ptr<rclcpp::Node> node,
     subLiDAR_ = node_->create_subscription<sensor_msgs::msg::PointCloud2>(
       "/okvis/lidar", 100000,
       std::bind(&Subscriber::lidarCallback, this, std::placeholders::_1));
+  }
+
+  // Set up radar velocity subscribers for each configured radar
+  if(!parameters_.radars.empty()){
+    radarSubscribers_.resize(parameters_.radars.size());
+    for(size_t i = 0; i < parameters_.radars.size(); ++i) {
+      std::string topic = "/okvis/velocity_radar_" + std::to_string(i);
+      radarSubscribers_[i] = node_->create_subscription<geometry_msgs::msg::TwistWithCovarianceStamped>(
+        topic, 50,
+        [this, i](const geometry_msgs::msg::TwistWithCovarianceStamped::SharedPtr msg) {
+          this->radarVelocityCallback(msg, static_cast<int>(i));
+        });
+      RCLCPP_INFO(node_->get_logger(), "Subscribed to radar topic: %s (radar ID: %zu)", topic.c_str(), i);
+    }
   }
 }
 
@@ -237,6 +240,35 @@ void Subscriber::lidarCallback(const sensor_msgs::msg::PointCloud2& msg){
       if(!seInterface_->addLidarMeasurement(timestamps[i], rays[i])) LOG(WARNING) << "Dropped last lidar measurement from SubmappingInterface.";
       viInterface_->addLidarMeasurement(timestamps[i], rays[i]);
     }
+  }
+}
+
+void Subscriber::radarVelocityCallback(const geometry_msgs::msg::TwistWithCovarianceStamped::SharedPtr msg, int radarId)
+{
+  // Extract velocity from message
+  Eigen::Vector3d velocity(
+    msg->twist.twist.linear.x,
+    msg->twist.twist.linear.y,
+    msg->twist.twist.linear.z
+  );
+
+  // Extract 3x3 linear-velocity block from the 6x6 twist covariance (row-major)
+  Eigen::Map<const Eigen::Matrix<double, 6, 6, Eigen::RowMajor>> twistCov(msg->twist.covariance.data());
+  Eigen::Matrix3d covariance = twistCov.block<3,3>(0,0);
+  
+  // Create radar sensor readings
+  okvis::RadarSensorReadings radarReadings(velocity, covariance);
+
+  // Convert timestamp
+  okvis::Time timestamp(msg->header.stamp.sec, msg->header.stamp.nanosec);
+
+  // Create radar measurement
+  okvis::RadarMeasurement radarMeas(timestamp, radarReadings, radarId);
+
+  // Add to ThreadedSlam via ViInterface
+  // Note: ThreadedSlam implements ViInterface which now has addRadarMeasurement method
+  if(viInterface_ != nullptr) {
+    viInterface_->addRadarMeasurement(radarMeas);
   }
 }
 

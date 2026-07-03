@@ -89,6 +89,10 @@ void ThreadedSlam::init()
   if(parameters_.gps){
     estimator_.addGps(*parameters_.gps);
   }
+  // Add radar sensors
+  for (size_t i = 0; i < parameters_.radars.size(); ++i) {
+    estimator_.addRadar(parameters_.radars[i]);
+  }
   estimator_.setDetectorUniformityRadius(parameters_.frontend.detection_threshold);
 
   // time limit if requested
@@ -269,7 +273,7 @@ bool ThreadedSlam::addImuMeasurement(const okvis::Time& stamp,
   {
     if(imuMeasurementsReceived_.PushNonBlockingDroppingIfFull(
          imu_measurement, size_t(imuQueueSize))) {
-      LOG(WARNING) << "imu measurement drop ";
+      // LOG(WARNING) << "imu measurement drop ";
       return false;
     }
     return true;
@@ -398,6 +402,27 @@ bool ThreadedSlam::addGeodeticGpsMeasurement(const okvis::Time& stamp,
 
 }
 
+// Add a radar measurement.
+bool ThreadedSlam::addRadarMeasurement(const okvis::RadarMeasurement& radarMeas)
+{
+  const int radarQueueSize = 100;
+
+  if (blocking_)
+  {
+    return radarMeasurementsReceived_.PushBlockingIfFull(radarMeas, size_t(radarQueueSize));
+  }
+  else
+  {
+    if(radarMeasurementsReceived_.PushNonBlockingDroppingIfFull(radarMeas, size_t(radarQueueSize))) {
+      LOG(WARNING) << "radar measurement drop ";
+      return false;
+    }
+
+    return true;
+  }
+
+}
+
 // Add Submap alignment constraints to estimator
 bool ThreadedSlam::addSubmapAlignmentConstraints(const SupereightMapType* submap_A_ptr,
                                                  const SupereightMapType* submap_B_ptr,
@@ -449,6 +474,7 @@ bool ThreadedSlam::processFrame() {
   ImuMeasurement imuMeasurement;
   LidarMeasurement lidarMeasurement;
   GpsMeasurement gpsMeasurement;
+  RadarMeasurement radarMeasurement;
   CameraMeasurement depthMeasurement;
   const size_t numCameras = parameters_.nCameraSystem.numCameras();
 
@@ -507,6 +533,11 @@ bool ThreadedSlam::processFrame() {
     while(!gpsMeasurementsReceived_.Empty() && gpsMeasurementsReceived_.queue_.front().timeStamp < multiFrame ->timestamp()){
         gpsMeasurementsReceived_.PopBlocking(&gpsMeasurement);
     } // nothing else to do here for GPS
+
+    // Drop Radar Measurements that are older than the first frame
+    while(!radarMeasurementsReceived_.Empty() && radarMeasurementsReceived_.queue_.front().timeStamp < multiFrame->timestamp()){
+      radarMeasurementsReceived_.PopBlocking(&radarMeasurement);
+    }
 
     firstFrame_ = false;
   } else {
@@ -618,6 +649,15 @@ bool ThreadedSlam::processFrame() {
         if(gpsMeasurementsReceived_.PopBlocking(&gpsMeasurement))
         {
           gpsMeasurementDeque_.push_back(gpsMeasurement);
+        }
+    }
+
+    // now also get all relevant radar measurements received thus far
+    while(!shutdown_ && !radarMeasurementsReceived_.Empty() && radarMeasurementsReceived_.queue_.front().timeStamp < multiFrame->timestamp())
+    {
+      if(radarMeasurementsReceived_.PopBlocking(&radarMeasurement))
+      {
+        radarMeasurementDeque_.push_back(radarMeasurement);
         }
     }
 
@@ -832,10 +872,19 @@ bool ThreadedSlam::processFrame() {
   // Add GPS Measurements
   estimator_.addGpsMeasurementsOnAllGraphs(gpsMeasurementDeque_, imuMeasurementDeque_);
 
+  // Add Radar Measurements
+  estimator_.addRadarMeasurementsOnAllGraphs(radarMeasurementDeque_, imuMeasurementDeque_);
+
   // remove gpsMeasurements from deque
   while(!shutdown_ && !gpsMeasurementDeque_.empty() && gpsMeasurementDeque_.front().timeStamp < multiFrame->timestamp() )
   {
     gpsMeasurementDeque_.pop_front();
+  }
+
+  // remove radarMeasurements from deque
+  while(!shutdown_ && !radarMeasurementDeque_.empty() && radarMeasurementDeque_.front().timeStamp < multiFrame->timestamp() )
+  {
+    radarMeasurementDeque_.pop_front();
   }
 
   // remove lidarMeasurements from deque
@@ -1303,6 +1352,7 @@ void ThreadedSlam::stopThreading() {
   imuMeasurementsReceived_.Shutdown();
   cameraMeasurementsReceived_.Shutdown();
   gpsMeasurementsReceived_.Shutdown();
+  radarMeasurementsReceived_.Shutdown();
   lidarMeasurementsReceived_.Shutdown();
   submapAlignmentFactorsReceived_.Shutdown();
   visualisationImages_.Shutdown();

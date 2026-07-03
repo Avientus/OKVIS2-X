@@ -428,6 +428,13 @@ class ViInterface
    */
   virtual bool addLidarMeasurement(const okvis::Time & stamp,
                                    const Eigen::Vector3d & rayMeasurement) = 0;
+
+  /**
+   * \brief          Add a radar measurement.
+   * \param radarMeas The radar measurement to be added.
+   * \return Returns true normally. False if the previous one has not been processed yet.
+   */
+  virtual bool addRadarMeasurement(const okvis::RadarMeasurement& radarMeas) = 0;
   /// \}
   /// \name Setters
   /// \{

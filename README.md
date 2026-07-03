@@ -442,6 +442,12 @@ You find examples for the datasets used in the paper in the respective subfolder
       [lidar/depth_image/stereo_network/depth_fusion]:=true
   ```
 
+  For the VI-only mode (OKVIS2-X without submapping), please set `enable_submapping=false` in `[config]` and launch with `depth_image:=true`. This will fall back to OKVIS2.
+  ```bash
+  ros2 launch okvis okvis2x_node_subscriber.launch.xml config_filename:=[config] se_config_filename:=[se2_config] \
+      depth_image:=true
+  ```
+
   **Notes:**
 
   * **IMPORTANT**: never forget to set `<set_env name="OMP_NUM_THREADS" value="2"/>`  (in the launch file ideally), otherwise depth integration might be horribly slow in SE2

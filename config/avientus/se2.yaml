@@ -1,0 +1,56 @@
+%YAML:1.2
+# SPDX-FileCopyrightText: 2021-2023 Smart Robotics Lab, Imperial College London, Technical University of Munich
+# SPDX-License-Identifier: CC0-1.0
+ 
+general:
+  # outputs
+  results_directory:          "/workspace/okvis_2X_ws/results"
+  write_mesh_output: true
+ 
+  # Sensor processing
+  sensor_measurement_downsampling: 2
+  depth_image_resolution_downsampling: 2
+ 
+  # Submapping
+  submap_kf_threshold: 20
+  submap_overlap_ratio: 0.1
+  submap_min_frames: 40
+  near_plane: 0.4
+  far_plane: 4.0
+ 
+  # Alignment settings
+  use_map_to_map_factors: true
+  use_map_to_live_factors: true
+  n_factors_per_state: 200 # number of points per depth images
+  sensor_error: 0.4 # 1-sigma for obsv. noise [m]
+ 
+  # Network depth settings
+  use_uncertainty: true
+ 
+  # Occupancy grid settings
+  occupancy_grid_enable: true
+  occupancy_grid_resolution: 0.5 # Grid cell size in meters
+  occupancy_grid_width: 200.0       # Grid width in meters
+  occupancy_grid_height: 200.0      # Grid height in meters
+  occupancy_grid_occupied_threshold: 0.4 # TSDF threshold for classifying cells as occupied (cells with abs(TSDF_value) < threshold are occupied)
+ 
+map:
+  dim:            [100.0, 100.0, 5.0]
+  res:            0.5
+ 
+data:
+  # occupancy data
+  surface_boundary:        0
+  min_occupancy:           -100
+  max_occupancy:            100
+  log_odd_min:             -5.015
+  log_odd_max:              5.015
+  fs_integr_scale:         1
+  const_surface_thickness: false
+  uncertainty_model:       quadratic
+  tau_min_factor:          3
+  tau_max_factor:          12
+  k_tau:                   0.02
+  sigma_min_factor:        1      # minimum/maximum uncertainty := 3 x sigma_min_factor/sigma_max_factor * voxel_dim
+  sigma_max_factor:        20     # minimum/maximum uncertainty := 3 x sigma_min_factor/sigma_max_factor * voxel_dim
+  k_sigma:                 0.05
