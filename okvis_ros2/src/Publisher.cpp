@@ -297,27 +297,7 @@ void Publisher::publishEstimatorUpdate(
     return; // otherwise it will override landmarks and path (plus create unnecessary traffic)
   }
 
-  // now handle all the (key)frames & path:
-  for(const auto & updatedState : *updatedStates) {
-    rclcpp::Time updatedState_t(state.timestamp.sec, state.timestamp.nsec); // Header timestamp.
-    const okvis::kinematics::Transformation T_WS = updatedState.second.T_WS;
-
-    auto updatedStatePoseMsg = std::make_shared<geometry_msgs::msg::TransformStamped>(); // Pose message.
-    const okvis::kinematics::Transformation T_WB = T_WS * T_SB;
-    updatedStatePoseMsg->child_frame_id = "body_"+std::to_string(updatedState.second.id.value());
-    updatedStatePoseMsg->header.frame_id = "world";
-    updatedStatePoseMsg->header.stamp = updatedState_t;
-    updatedStatePoseMsg->transform.rotation.x = T_WB.q().x();
-    updatedStatePoseMsg->transform.rotation.y = T_WB.q().y();
-    updatedStatePoseMsg->transform.rotation.z = T_WB.q().z();
-    updatedStatePoseMsg->transform.rotation.w = T_WB.q().w();
-    updatedStatePoseMsg->transform.translation.x = T_WB.r()[0];
-    updatedStatePoseMsg->transform.translation.y = T_WB.r()[1];
-    updatedStatePoseMsg->transform.translation.z = T_WB.r()[2];
-
-    // publish
-    pubTransform_.publish(updatedStatePoseMsg);
-  }
+  // Per-keyframe body_<id> transforms disabled (generates hundreds of frames).
 
   // update Trajectory object
   std::set<okvis::StateId> affectedStateIds;
