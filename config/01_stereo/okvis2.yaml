@@ -1,15 +1,15 @@
 %YAML:1.0
 cameras:
     # Stereo Left (cam 0)
-  - {T_SC: [-0.07114084, -0.39925794,  0.91407444,  0.0038567,
-            0.99700878, -0.00071059,  0.0772851,  -0.0005779,
-            -0.03020716,  0.91683837,  0.39811422,  0.00217015,
-            0.0  , 0.0, 0.0  , 1.0] ,
+  - {T_SC: [-0.08937486, -0.41517300,  0.90534166,  0.16103208,
+        0.99590859, -0.02506810,  0.08681981, -0.08317564,
+       -0.01335004,  0.90939704,  0.41571481,  0.06896378,
+        0.        ,  0.        ,  0.        ,  1.        ],
      image_dimension: [640, 360],
      distortion_type: equidistant,
-     distortion_coefficients: [-0.036659423566449606, 0.01873386072335892, -0.03762330184773268, 0.02041945926074395],
-     focal_length: [363.5578420995749, 363.44352078091345],
-     principal_point: [320.1219054868866, 184.28450088887164],
+     distortion_coefficients: [-0.009211822352978386, -0.09872336090588113, 0.1349223527470886, -0.06512296991749678],
+     focal_length:  [366.0359246953492, 366.03364961124475],
+     principal_point:  [317.46427053875146, 182.74018199000693],
      cam_model: pinhole,
      camera_type: gray+depth,
      mapping: true,
@@ -17,15 +17,15 @@ cameras:
      slam_use: okvis}
      
      # Stereo Right (cam 1)
-  - {T_SC: [ 0.06433189, -0.40560566,  0.91178148,  0.00375051,
-             0.99746027, -0.00185226, -0.07120104,  0.19323301,
-             0.0305684,   0.91404629,  0.40445637,  0.00113733,
-            0.0  , 0.0, 0.0  , 1.0] ,
+  - {T_SC: [ 0.06010936, -0.41992981,  0.90556381,  0.15837184,
+        0.99669210, -0.02446146, -0.07750157,  0.10862165,
+        0.05469663,  0.90722687,  0.41707037,  0.07034237,
+        0.        ,  0.        ,  0.        ,  1.        ],
      image_dimension: [640, 360],
-     distortion_coefficients: [-0.03272986676871673, -0.003245176122440311, 0.011794589260422083, -0.01133065639188429],
+     distortion_coefficients: [-0.018295299873801255, -0.04548396705741959, 0.040617219382436266, -0.012219883302943622],
      distortion_type: equidistant,
-     focal_length: [363.16280486995685, 363.00730154124825],
-     principal_point: [334.1653314650457, 184.84724275293215],
+     focal_length: [362.0544251875278, 361.94948469663274],
+     principal_point: [335.4072061896592, 185.6033555527814],
      cam_model: pinhole,
      camera_type: gray, #gray, rgb, gray+depth, rgb+depth 
      mapping: true,
@@ -73,9 +73,9 @@ frontend_parameters:
     absolute_threshold: 200.0 # absolute Harris corner threshold (noise floor)
     matching_threshold: 60.0 # BRISK descriptor matching threshold
     octaves: 0 # number of octaves for detection. 0 means single-scale at highest resolution
-    max_num_keypoints: 700 # restrict to a maximum of this many keypoints per image (strongest ones)
+    max_num_keypoints: 400 # restrict to a maximum of this many keypoints per image (strongest ones)
     keyframe_overlap: 0.60 # minimum field-of-view overlap
-    use_cnn: true # use the CNN (if available) to filter out dynamic content / sky
+    use_cnn: false # use the CNN (if available) to filter out dynamic content / sky
     parallelise_detection: true # Run parallel detect & describe.
     num_matching_threads: 4 # Parallelise matching with this number of threads.
 
