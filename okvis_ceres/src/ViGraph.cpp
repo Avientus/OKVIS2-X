@@ -317,6 +317,17 @@ StateId ViGraph::addStatesInitialise(
     double angle = std::acos(ez_W.transpose() * e_acc);
     poseIncrement.tail<3>() *= angle;
     T_WS.oplus(-poseIncrement);
+
+    // Zero yaw: IMU can only observe gravity (roll/pitch), not heading.
+    const kinematics::Transformation T_WB_init =
+        T_WS * imuParametersVec_.at(0).T_BS.inverse();
+    Eigen::Vector3d fwd = T_WB_init.q() * Eigen::Vector3d::UnitX();
+    fwd.z() = 0.0;
+    if (fwd.norm() > 1e-6) {
+      const double yaw = std::atan2(fwd.y(), fwd.x());
+      T_WS.set(T_WS.r(),
+               Eigen::AngleAxisd(-yaw, Eigen::Vector3d::UnitZ()) * T_WS.q());
+    }
   } else {
     // otherwise we assume the camera is vertical & upright
     kinematics::Transformation T_WC;
