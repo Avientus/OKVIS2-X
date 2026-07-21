@@ -99,6 +99,6 @@ estimator_parameters:
 # some options for how and what to output
 output_parameters:
     display_topview: true # Displays top view of the trajectory. Might become slow for long sequences.
-    display_matches: true  # displays debug video and matches. May be slow.
+    display_matches: false  # displays debug video and matches. May be slow.
     display_overhead: false # debug overhead image. Is slow.
     enable_submapping: true # Enable volumetric submapping
