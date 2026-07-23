@@ -24,6 +24,10 @@
 #include <stdlib.h>
 #include <iostream>
 #include <signal.h>
+#include <sched.h>
+#include <sys/resource.h>
+#include <cerrno>
+#include <cstring>
 
 #include <glog/logging.h>
 
@@ -54,6 +58,17 @@ int main(int argc, char **argv) {
   google::InitGoogleLogging(argv[0]);
   FLAGS_stderrthreshold = 0;  // INFO: 0, WARNING: 1, ERROR: 2, FATAL: 3
   FLAGS_colorlogtostderr = 1;
+
+  // Set real-time scheduling priority
+  struct sched_param schedParam;
+  schedParam.sched_priority = 99;
+  if (sched_setscheduler(0, SCHED_FIFO, &schedParam) != 0) {
+    LOG(WARNING) << "Could not set real-time priority: " << strerror(errno)
+                 << " (run with sudo or set CAP_SYS_NICE)";
+  } else {
+    LOG(INFO) << "Real-time FIFO scheduling priority 99 set successfully";
+  }
+  setpriority(PRIO_PROCESS, 0, -20);
 
   // ros2 setup
   rclcpp::init(argc, argv);

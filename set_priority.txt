@@ -1,0 +1,6 @@
+After building, grant the okvis binary real-time scheduling capability (no sudo needed at runtime):
+
+  sudo setcap cap_sys_nice=eip $(find ~/drone_ws/install -name "okvis_node" -type f)
+
+Verify:
+  getcap $(find ~/drone_ws/install -name "okvis_node" -type f)
