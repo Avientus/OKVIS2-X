@@ -48,15 +48,15 @@ camera_parameters:
 
 imu_parameters:
     use: true
-    a_max: 176.0 # acceleration saturation [m/s^2] (PX4 default)
-    g_max: 7.8 # gyro saturation [rad/s] (PX4 default)
-    sigma_g_c: 6.447192398374904e-02
-    sigma_a_c: 0.1041716817202322     # accelerometer noise density [m/s^2/sqrt(Hz)]
-    sigma_bg: 4.027e-02  # gyro bias prior [rad/s]
-    sigma_ba: 4.827e-01 # accelerometer bias prior [m/s^2]
-    sigma_gw_c: 5.4968240967256775e-04 # gyro drift noise density [rad/s^s/sqrt(Hz)]
-    sigma_aw_c: 3.5309908618458486e-2 # accelerometer drift noise density [m/s^2/sqrt(Hz)]
-    g: 9.81007 # Earth's acceleration due to gravity [m/s^2]
+    a_max: 163.84 # acceleration saturation [m/s^2] (PX4 default)
+    g_max: 5.72 # gyro saturation [rad/s] (PX4 default)
+    sigma_g_c: 6.54192398374904e-04
+    sigma_a_c: 0.01122041716817202322     # accelerometer noise density [m/s^2/sqrt(Hz)]
+    sigma_bg: 4.027038e-03  # gyro bias prior [rad/s]
+    sigma_ba: 4.827057e-02 # accelerometer bias prior [m/s^2]
+    sigma_gw_c: 3.5772073474968240967256775e-05 # gyro drift noise density [rad/s^s/sqrt(Hz)]
+    sigma_aw_c: 3.940336355309908618458486e-3 # accelerometer drift noise density [m/s^2/sqrt(Hz)]
+    g: 9.8100776 # Earth's acceleration due to gravity [m/s^2]
     g0: [0.0, 0.0, 0.0] # initial gyroscope bias [rad/s]
     a0: [0.0, 0.0, 0.0] # initial accelerometer bias [m/s^2]
     s_a: [1.0,1.0,1.0]
