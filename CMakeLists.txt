@@ -79,8 +79,22 @@ if(USE_NN)
       set(${result_var} FALSE PARENT_SCOPE)
   endfunction()
 
-  # Download the models.
+  # Download the models using curl --insecure (cmake's file(DOWNLOAD) TLS_VERIFY OFF
+  # is not honoured when libcurl is compiled with hardcoded certificate verification).
   message(STATUS "Downloading depth models")
+
+  macro(curl_download URL DEST_FILE)
+    get_filename_component(_dest_dir "${DEST_FILE}" DIRECTORY)
+    file(MAKE_DIRECTORY "${_dest_dir}")
+    execute_process(
+      COMMAND curl --insecure -L --silent --show-error -o "${DEST_FILE}" "${URL}"
+      RESULT_VARIABLE _curl_result
+      ERROR_VARIABLE  _curl_error
+    )
+    if(NOT _curl_result EQUAL 0)
+      message(FATAL_ERROR "Failed to download ${URL}: ${_curl_error}")
+    endif()
+  endmacro()
 
   # Get Model for Depth Prediction: Unimatch-accuracy
   # "stereo-mix-sigma.pt" was used for the VBR dataset
@@ -91,12 +105,11 @@ if(USE_NN)
   if(DEPTH_ACCURACY_OK)
     message(STATUS "DEPTH_ACCURACY Model already available. No Download needed!")
   else()
-    file(DOWNLOAD
-      ${DEPTH_ACCURACY_URL}
-      ${DEPTH_ACCURACY_FILE}
-      EXPECTED_HASH ${DEPTH_ACCURACY_HASH}
-      TIMEOUT 60
-    )
+    curl_download("${DEPTH_ACCURACY_URL}" "${DEPTH_ACCURACY_FILE}")
+    check_hash("${DEPTH_ACCURACY_FILE}" "${DEPTH_ACCURACY_HASH}" DEPTH_ACCURACY_OK)
+    if(NOT DEPTH_ACCURACY_OK)
+      message(FATAL_ERROR "Hash mismatch for downloaded ${DEPTH_ACCURACY_FILE}")
+    endif()
   endif()
 
   # Get Model for Depth Prediction: Unimatch-fast
@@ -113,12 +126,11 @@ if(USE_NN)
   if(DEPTH_FAST_OK)
     message(STATUS "DEPTH_FAST Model already available. No Download needed!")
   else()
-    file(DOWNLOAD
-      ${DEPTH_FAST_URL}
-      ${DEPTH_FAST_FILE}
-      EXPECTED_HASH ${DEPTH_FAST_HASH}
-      TIMEOUT 60
-    )
+    curl_download("${DEPTH_FAST_URL}" "${DEPTH_FAST_FILE}")
+    check_hash("${DEPTH_FAST_FILE}" "${DEPTH_FAST_HASH}" DEPTH_FAST_OK)
+    if(NOT DEPTH_FAST_OK)
+      message(FATAL_ERROR "Hash mismatch for downloaded ${DEPTH_FAST_FILE}")
+    endif()
     file(RENAME ${DEPTH_FAST_FILE} ${DEPTH_FILE})
   endif()
 
@@ -135,12 +147,11 @@ if(USE_NN)
   if(MVS_OK)
     message(STATUS "MVS Model already available. No Download needed!")
   else()
-    file(DOWNLOAD
-      ${MVS_URL}
-      ${MVS_FILE}
-      EXPECTED_HASH ${MVS_HASH}
-      TIMEOUT 120
-    )
+    curl_download("${MVS_URL}" "${MVS_FILE}")
+    check_hash("${MVS_FILE}" "${MVS_HASH}" MVS_OK)
+    if(NOT MVS_OK)
+      message(FATAL_ERROR "Hash mismatch for downloaded ${MVS_FILE}")
+    endif()
   endif()
   if(BUILD_ROS2)
     file(COPY ${MVS_FILE}
@@ -190,7 +201,7 @@ if(BUILD_APPS)
   if(USE_SYSTEM_DBOW2)
     find_package(DBoW2 REQUIRED)
   endif()
-  
+
   # DBoW2 test app
   add_executable(dbow2_test okvis_apps/src/dbow2_test.cpp)
   target_include_directories(dbow2_test
@@ -273,7 +284,7 @@ if(BUILD_APPS)
         ${OKVIS_PRIVATE_CXX_FLAGS}
     )
     install(TARGETS okvis_app_realsense EXPORT okvisTargets RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
-  
+
     # OKIVS RealSense recorder app
     add_executable(okvis_app_realsense_recorder okvis_apps/src/okvis_app_realsense_recorder.cpp)
     target_link_libraries(okvis_app_realsense_recorder
@@ -288,10 +299,10 @@ if(BUILD_APPS)
     )
     install(TARGETS okvis_app_realsense_recorder EXPORT okvisTargets RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
   endif()
-  
+
   if(USE_NN)
     find_package(Torch REQUIRED)
-  
+
     # Torch test app
     add_executable(nn_test okvis_apps/src/nn_test.cpp)
     target_compile_options(nn_test PRIVATE ${TORCH_CXX_FLAGS})
@@ -313,7 +324,7 @@ if(BUILD_APPS)
     target_compile_features(nn_test
       PUBLIC cxx_std_${OKVIS_CXX_STANDARD}
     )
-    
+
     # Submapping App with Stereo Depth NN
     add_executable(okvis2x_app_snetwork_synchronous
                    okvis_apps/src/okvis2x_app_network_synchronous.cpp)
@@ -360,7 +371,7 @@ if(BUILD_APPS)
       SRL::Projection
     )
 
-  endif()               
+  endif()
 endif()
 
 # ros2
@@ -446,7 +457,7 @@ if(BUILD_ROS2)
       okvis::Mapping
       okvis::MultisensorProcessing
       ${GLOG_LIBRARIES}
-      ${Boost_LIBRARIES} 
+      ${Boost_LIBRARIES}
       ${PCL_LIBRARIES}
   )
   target_compile_features(${LIB_NAME} PUBLIC cxx_std_${OKVIS_CXX_STANDARD})
@@ -524,7 +535,7 @@ if(BUILD_ROS2)
     okvis::Ros2
     ${OpenCV_LIBS}
     ${SUITESPARSE_LIBRARIES}
-    ${Boost_LIBRARIES} 
+    ${Boost_LIBRARIES}
     ${PCL_LIBRARIES}
   )
   install(TARGETS okvis2x_node_subscriber DESTINATION lib/${PROJECT_NAME})
@@ -537,7 +548,7 @@ if(BUILD_ROS2)
       okvis::Ros2
       ${OpenCV_LIBS}
       ${SUITESPARSE_LIBRARIES}
-      ${Boost_LIBRARIES} 
+      ${Boost_LIBRARIES}
       ${PCL_LIBRARIES}
     )
     install(TARGETS okvis_node_realsense_publisher DESTINATION lib/${PROJECT_NAME})
@@ -548,7 +559,7 @@ if(BUILD_ROS2)
       okvis::Ros2
       ${OpenCV_LIBS}
       ${SUITESPARSE_LIBRARIES}
-      ${Boost_LIBRARIES} 
+      ${Boost_LIBRARIES}
       ${PCL_LIBRARIES}
     )
     install(TARGETS okvis2x_node_realsense DESTINATION lib/${PROJECT_NAME})
@@ -564,7 +575,7 @@ if(BUILD_ROS2)
       okvis::Ros2
       ${OpenCV_LIBS}
       ${SUITESPARSE_LIBRARIES}
-      ${Boost_LIBRARIES} 
+      ${Boost_LIBRARIES}
       ${PCL_LIBRARIES}
       okvis::DeepLearning
     )
@@ -578,7 +589,7 @@ if(BUILD_ROS2)
       okvis::Ros2
       ${OpenCV_LIBS}
       ${SUITESPARSE_LIBRARIES}
-      ${Boost_LIBRARIES} 
+      ${Boost_LIBRARIES}
       ${PCL_LIBRARIES}
       okvis::DeepLearning
     )
@@ -594,7 +605,7 @@ if(BUILD_ROS2)
         okvis::Ros2
         ${OpenCV_LIBS}
         ${SUITESPARSE_LIBRARIES}
-        ${Boost_LIBRARIES} 
+        ${Boost_LIBRARIES}
         ${PCL_LIBRARIES}
         okvis::DeepLearning
       )
@@ -608,7 +619,7 @@ if(BUILD_ROS2)
         okvis::Ros2
         ${OpenCV_LIBS}
         ${SUITESPARSE_LIBRARIES}
-        ${Boost_LIBRARIES} 
+        ${Boost_LIBRARIES}
         ${PCL_LIBRARIES}
         okvis::DeepLearning
       )
