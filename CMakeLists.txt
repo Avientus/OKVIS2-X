@@ -96,6 +96,7 @@ if(USE_NN)
       ${DEPTH_ACCURACY_FILE}
       EXPECTED_HASH ${DEPTH_ACCURACY_HASH}
       TIMEOUT 60
+      TLS_VERIFY OFF
     )
   endif()
 
@@ -104,7 +105,12 @@ if(USE_NN)
   set(DEPTH_FAST_URL "https://cvg.cit.tum.de/webshare/g/srl-models/unimatch/stereo-indoor-sigma.pt")
   set(DEPTH_FAST_FILE "${PROJECT_SOURCE_DIR}/build/stereo-indoor-sigma.pt")
   set(DEPTH_FAST_HASH "SHA256=75d3a68b0a18e8ff1b20ac1e4b75a094d595c57cf52482485d4e8049782fe4c8")
-  check_hash("${DEPTH_FAST_FILE}" "${DEPTH_FAST_HASH}" DEPTH_FAST_OK)
+
+  set(DEPTH_FILE "${PROJECT_SOURCE_DIR}/build/depth-model.pt")
+
+  # Please set your desiered stereo depth model (DEPTH_FAST_FILE or DEPTH_ACCURACY_FILE) here.
+  # Check the final destination first so re-configure doesn't re-download after rename.
+  check_hash("${DEPTH_FILE}" "${DEPTH_FAST_HASH}" DEPTH_FAST_OK)
   if(DEPTH_FAST_OK)
     message(STATUS "DEPTH_FAST Model already available. No Download needed!")
   else()
@@ -113,13 +119,10 @@ if(USE_NN)
       ${DEPTH_FAST_FILE}
       EXPECTED_HASH ${DEPTH_FAST_HASH}
       TIMEOUT 60
+      TLS_VERIFY OFF
     )
+    file(RENAME ${DEPTH_FAST_FILE} ${DEPTH_FILE})
   endif()
-
-  set(DEPTH_FILE "${PROJECT_SOURCE_DIR}/build/depth-model.pt")
-
-  # Please set your desiered stereo depth model (DEPTH_FAST_FILE or DEPTH_ACCURACY_FILE) here.
-  file(RENAME ${DEPTH_FAST_FILE} ${DEPTH_FILE})
 
   if(BUILD_ROS2)
     file(COPY ${DEPTH_FILE}
@@ -139,6 +142,7 @@ if(USE_NN)
       ${MVS_FILE}
       EXPECTED_HASH ${MVS_HASH}
       TIMEOUT 120
+      TLS_VERIFY OFF
     )
   endif()
   if(BUILD_ROS2)
