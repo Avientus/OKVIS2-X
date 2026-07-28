@@ -96,7 +96,6 @@ if(USE_NN)
       ${DEPTH_ACCURACY_FILE}
       EXPECTED_HASH ${DEPTH_ACCURACY_HASH}
       TIMEOUT 60
-      TLS_VERIFY OFF
     )
   endif()
 
@@ -119,7 +118,6 @@ if(USE_NN)
       ${DEPTH_FAST_FILE}
       EXPECTED_HASH ${DEPTH_FAST_HASH}
       TIMEOUT 60
-      TLS_VERIFY OFF
     )
     file(RENAME ${DEPTH_FAST_FILE} ${DEPTH_FILE})
   endif()
@@ -142,7 +140,6 @@ if(USE_NN)
       ${MVS_FILE}
       EXPECTED_HASH ${MVS_HASH}
       TIMEOUT 120
-      TLS_VERIFY OFF
     )
   endif()
   if(BUILD_ROS2)
