@@ -213,6 +213,12 @@ namespace timing {
     return reset(getHandle(tag));
   }
 
+  void Timing::resetAll() {
+    for(auto& timer : instance().m_timers) {
+      timer = TimerMapValue();
+    }
+  }
+
   std::string Timing::secondsToTimeString(double seconds) {
     
     double secs = fmod(seconds,60);

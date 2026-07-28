@@ -39,6 +39,7 @@ class DepthFusionProcessor : public okvis::Stereo2DepthProcessor {
   struct StereoNetworkData {
     cv::Mat leftImage;
     cv::Mat rightImage; 
+    cv::Mat rgbImage;
     torch::Tensor depth; // depth
     torch::Tensor sigma; // 1-sigma of depth
   };
@@ -175,6 +176,7 @@ class DepthFusionProcessor : public okvis::Stereo2DepthProcessor {
     int sensorMeasurementDownsamplingCounter_ = 0;
     unsigned int srcSelectCnt_ = 0;
     okvis::Duration imageTimeDelay_;  // Actual image time = nominal image time - imageTimeDelay_.
+    std::optional<size_t> idColor_ = std::nullopt; // RGB camera id
 };
 } // namespace okvis
 

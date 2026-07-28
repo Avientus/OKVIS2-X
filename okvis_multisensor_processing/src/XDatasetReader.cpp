@@ -53,6 +53,15 @@ XDatasetReader::XDatasetReader(const std::string & path,
       }
     }
   }
+
+  // Find the RGB camera id.
+  if(use_rgb) {
+    for(int camId = 0; camId < numCameras_; camId ++) {
+      if(parameters.nCameraSystem.cameraType(camId).isColour) {
+        rgbCameraId_ = camId;
+      }
+    }
+  }
 }
 
 XDatasetReader::~XDatasetReader() {
@@ -175,6 +184,10 @@ bool XDatasetReader::startStreaming() {
       std::string s0, s1;
       std::getline(stream, s0, ',');
       std::getline(stream, s1);
+      // If the file is written in Windows. (\r\n)
+      if (s1.back() == '\r' || s1.back() == ',') {
+        s1 = s1.substr(0, s1.size() - 1);
+      }
       depthNames = std::make_pair(s0,s1);
       allDepthNames_.push_back(depthNames);
     }
@@ -203,7 +216,7 @@ bool XDatasetReader::startStreaming() {
       std::getline(stream, s0, ',');
       std::getline(stream, s1, ',');
       // If the file is written in Windows. (\r\n)
-      if (s1.back() == '\r') {
+      if (s1.back() == '\r' || s1.back() == ',') {
         s1 = s1.substr(0, s1.size() - 1);
       }
       imageNames.push_back(std::make_pair(s0,s1));
@@ -217,9 +230,9 @@ bool XDatasetReader::startStreaming() {
   }
 
   if(rgbFlag_) {
-    // Open depth files
+    // Open RGB files
     int num_rgb_images = 0;
-    std::ifstream rgbDataFile(path_ + "/rgb0/data.csv");
+    std::ifstream rgbDataFile(path_ + "/rgb" + std::to_string(rgbCameraId_) + "/data.csv");
     std::vector < std::pair<std::string, std::string> > rgbNames;
     std::getline(rgbDataFile, line);
     while (std::getline(rgbDataFile, line)) {
@@ -229,7 +242,7 @@ bool XDatasetReader::startStreaming() {
       std::getline(stream, s0, ',');
       std::getline(stream, s1);
       // If the file is written in Windows. (\r\n)
-      if (s1.back() == '\r') {
+      if (s1.back() == '\r' || s1.back() == ',') {
         s1 = s1.substr(0, s1.size() - 1);
       }
       rgbNames.push_back(std::make_pair(s0,s1));
@@ -316,8 +329,8 @@ void  XDatasetReader::processing() {
       cv::Mat filtered;
       std::pair<okvis::Time, cv::Mat> timestamp_filtered;
       std::string filename;
-      if(rgbFlag_ && i == (numCameras - 1)) {
-        filename = path_ + "/rgb0/data/" + cam_iterators.at(i)->second;
+      if(rgbFlag_ && i == rgbCameraId_) {
+        filename = path_ + "/rgb" + std::to_string(rgbCameraId_) + "/data/" + cam_iterators.at(i)->second;
         filtered = cv::imread(filename, cv::IMREAD_COLOR);
         cv::cvtColor(filtered, filtered, cv::COLOR_BGR2RGB);
       } else {
@@ -371,7 +384,8 @@ void  XDatasetReader::processing() {
         } while (t_lidar <= t);
       }
 
-      if (depthFlag_) {
+      // Either depth only (depthFlag_ && rgbFlag_) or RGB-D (depthFlag_ && rgbFlag_ && i == (numCameras - 1))
+      if ((depthFlag_ && !rgbFlag_) || (depthFlag_ && rgbFlag_ && i == rgbCameraId_)) {
         // get all depth image till then
         okvis::Time t_depth = start;
         while(true) {
@@ -386,18 +400,25 @@ void  XDatasetReader::processing() {
           std::string filename = path_ + "/depth0/data/" + depth_iterators->second;
           cv::Mat depth = cv::imread(filename, cv::IMREAD_UNCHANGED);
           if (t_depth - start + okvis::Duration(1.0) > deltaT_) {
-            if (depthFlag_) {
-              okvis::CameraMeasurement camMeasurement;
-              camMeasurement.timeStamp = t_depth;
-              depth.convertTo(depth, CV_32F);
-              camMeasurement.measurement.depthImage = depth;
-              std::map<size_t, std::vector<okvis::CameraMeasurement>> si_data;
-              si_data[depthCameraId_] = {camMeasurement};
-              depthImages.emplace(std::make_pair(depthCameraId_, depth.clone()));
-              network_depthImages.emplace(std::make_pair(depthCameraId_, std::make_pair(t_depth, depth.clone())));
-              if(depthCallback_) {
-                depthCallback_(si_data);
-              }
+            okvis::CameraMeasurement camMeasurement;
+            camMeasurement.timeStamp = t_depth;
+            depth.convertTo(depth, CV_32F);
+            camMeasurement.measurement.depthImage = depth;
+            std::map<size_t, std::vector<okvis::CameraMeasurement>> si_data;
+            si_data[depthCameraId_] = {camMeasurement};
+            depthImages.emplace(std::make_pair(depthCameraId_, depth.clone()));
+            network_depthImages.emplace(std::make_pair(depthCameraId_, std::make_pair(t_depth, depth.clone())));
+
+            // RGB Measurement
+            if(rgbFlag_){
+              okvis::CameraMeasurement rgbMeasurement;
+              rgbMeasurement.timeStamp = t;
+              rgbMeasurement.measurement.image = filtered;
+              si_data[rgbCameraId_] = {rgbMeasurement};
+            }
+
+            if(depthCallback_) {
+              depthCallback_(si_data);
             }
             // LOG(INFO) << "Depth callback from streaming :" << filename << ", t_depth = " << t_depth << ", t = " << t;
           }

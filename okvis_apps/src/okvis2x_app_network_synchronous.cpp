@@ -38,7 +38,9 @@
 #include <boost/filesystem.hpp>
 #include <okvis/SubmappingInterface.hpp>
 
-#if defined(OKVIS_STEREO_NETWORK_PROCESSOR)
+#if defined(OKVIS_LANGUAGE_NETWORK_PROCESSOR)
+#include <okvis/VisionLanguageProcessor.hpp>
+#elif defined(OKVIS_STEREO_NETWORK_PROCESSOR)
 #include <okvis/Stereo2DepthProcessor.hpp>
 #elif defined(OKVIS_DFUSION_NETWORK_PROCESSOR)
 #include <okvis/DepthFusionProcessor.hpp>
@@ -57,6 +59,16 @@ int main(int argc, char **argv)
   FLAGS_stderrthreshold = 0;  // INFO: 0, WARNING: 1, ERROR: 2, FATAL: 3
   FLAGS_colorlogtostderr = 1;
   FLAGS_minloglevel = 0;
+
+  // Check if Environment Variable for OMP is set (recommended)
+  if (!std::getenv("OMP_NUM_THREADS")) {
+    LOG(WARNING) << "OMP_NUM_THREADS not set. It is recommended to set it to achieve fast depth integration of Supereight2 (e.g. 3 or 5 depending on the user's system.)";
+    std::this_thread::sleep_for(std::chrono::seconds(3)); // Pause thread to highlight warning
+  }
+  else{
+    const char* env_p = std::getenv("OMP_NUM_THREADS");
+    LOG(INFO) << "OMP_NUM_THREADS is set to: " << env_p;
+  }
 
   // read configuration file
   std::string configFilename(argv[1]);
@@ -77,12 +89,22 @@ int main(int argc, char **argv)
     parameters.output.enable_submapping = true;
   }
 
+  bool isRgb = false;
+  for(size_t i = 0; i < parameters.nCameraSystem.numCameras(); i++) {
+    if(parameters.nCameraSystem.cameraType(i).isColour) {
+      isRgb = true;
+      LOG(INFO) << "RGB camera detected at camera id " << i;
+    }
+  }
+
   // dataset reader
   std::string path(argv[3]);
   std::shared_ptr<okvis::XDatasetReader> datasetReader;
   okvis::Duration deltaT(0.0); // time tolerance to callbacks
   #if defined(OKVIS_STEREO_NETWORK_PROCESSOR) || defined(OKVIS_DFUSION_NETWORK_PROCESSOR)
-  datasetReader.reset(new okvis::XDatasetReader(path, deltaT, parameters, false, true, false));
+  datasetReader.reset(new okvis::XDatasetReader(path, deltaT, parameters, false, true, false, isRgb));
+  #elif defined(OKVIS_LANGUAGE_NETWORK_PROCESSOR)
+  datasetReader.reset(new okvis::XDatasetReader(path, deltaT, parameters, false, true, true, true));
   #endif
 
   // also check DBoW2 vocabulary
@@ -128,6 +150,8 @@ int main(int argc, char **argv)
   processor.reset(new okvis::Stereo2DepthProcessor(parameters, dBowVocDir));
   #elif defined(OKVIS_DFUSION_NETWORK_PROCESSOR)
   processor.reset(new okvis::DepthFusionProcessor(parameters, dBowVocDir));
+  #elif defined(OKVIS_LANGUAGE_NETWORK_PROCESSOR)
+  processor.reset(new okvis::VLProcessor(parameters, dBowVocDir));
   #endif
                                               
   processor->setBlocking(true);
@@ -188,7 +212,7 @@ int main(int argc, char **argv)
   datasetReader->setImagesNetworkCallback(
         std::bind(&okvis::DeepLearningProcessor::addImages, processor, std::placeholders::_1,
                   std::placeholders::_2));
-  #if defined(OKVIS_STEREO_NETWORK_PROCESSOR)
+  #if defined(OKVIS_STEREO_NETWORK_PROCESSOR) || defined(OKVIS_LANGUAGE_NETWORK_PROCESSOR)
   processor->setImageCallback([&] (std::map<size_t, std::vector<okvis::CameraMeasurement>>& frames){
     bool estimatorAdd = false;
     bool mapAdd = false;
@@ -287,6 +311,25 @@ int main(int argc, char **argv)
         cv::hconcat(visSigma, invSigmaOutput);
         cv::vconcat(invDepthOutput, invSigmaOutput, networkOutput);
         cv::imshow("Depth stereo/mvs/fuse; Inverse depth sigma stereo/mvs/fuse", networkOutput);
+      }
+      #elif defined(OKVIS_LANGUAGE_NETWORK_PROCESSOR)
+      std::map<std::string, cv::Mat> images;
+      processor->display(images);
+      cv::Mat display;
+      for(const auto& image : images) {
+        if(image.first != "language_rgb") {
+          if(display.empty()) {
+            display = image.second;
+          } else {
+            cv::hconcat(display, image.second, display);
+          }
+        }
+      }
+      if(!display.empty()) {
+        cv::imshow("RGB images display", display);
+      } 
+      if (images.find("language_rgb") != images.end()) {
+        cv::imshow("Language activations", images["language_rgb"]);
       }
       #endif
       

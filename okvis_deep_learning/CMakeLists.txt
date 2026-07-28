@@ -15,6 +15,7 @@ if(USE_NN)
     target_sources(${LIB_NAME}
         PRIVATE
             src/Stereo2DepthProcessor.cpp 
+            src/VisionLanguageProcessor.cpp
             src/DepthFusionProcessor.cpp)
 endif()
 

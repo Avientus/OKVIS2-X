@@ -137,6 +137,7 @@ namespace okvis {
 
         int numCameras_ = -1;
         size_t depthCameraId_ = 0;
+        size_t rgbCameraId_ = 0;
         okvis::Time t_gps_; ///< Timestamp of the last gps signal received
 
     };

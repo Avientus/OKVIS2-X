@@ -146,6 +146,69 @@ if(USE_NN)
     file(COPY ${MVS_FILE}
         DESTINATION ${PROJECT_SOURCE_DIR}/resources/)
   endif()
+
+  if(USE_COLIDMAP)
+    # Get Models for FindAnything: Efficient SAM (Original Model)
+    set(ESAM_ORIGINAL_URL "https://cvg.cit.tum.de/webshare/g/srl-models/findanything/esam-model-original.pt")
+    set(ESAM_ORIGINAL_FILE "${PROJECT_SOURCE_DIR}/build/esam-model-original.pt")
+    set(ESAM_ORIGINAL_HASH "SHA256=428d6c0409fffa6f9b5ce713ca635d22b2f4800817c1e4daed323d5c2e38735e")
+    check_hash("${ESAM_ORIGINAL_FILE}" "${ESAM_ORIGINAL_HASH}" ESAM_ORIGINAL_OK)
+    if(ESAM_ORIGINAL_OK)
+      message(STATUS "ESAM Model (Original) already available. No Download needed!")
+    else()
+      file(DOWNLOAD
+        ${ESAM_ORIGINAL_URL}
+        ${ESAM_ORIGINAL_FILE}
+        EXPECTED_HASH ${ESAM_ORIGINAL_HASH}
+        TIMEOUT 120
+      )
+    endif()
+
+    # Get Models for FindAnything: Efficient SAM (Fast Model)
+    set(ESAM_FAST_URL "https://cvg.cit.tum.de/webshare/g/srl-models/findanything/esam-model-fast.pt")
+    set(ESAM_FAST_FILE "${PROJECT_SOURCE_DIR}/build/esam-model-fast.pt")
+    set(ESAM_FAST_HASH "SHA256=dd76bfa171b70ea580be5361c04f936051f1be5780e57e369c310c8610c24d0f")
+    check_hash("${ESAM_FAST_FILE}" "${ESAM_FAST_HASH}" ESAM_FAST_OK)
+    if(ESAM_FAST_OK)
+      message(STATUS "ESAM Model (Fast) already available. No Download needed!")
+    else()
+      file(DOWNLOAD
+        ${ESAM_FAST_URL}
+        ${ESAM_FAST_FILE}
+        EXPECTED_HASH ${ESAM_FAST_HASH}
+        TIMEOUT 120
+      )
+    endif()
+
+    set(ESAM_FILE "${PROJECT_SOURCE_DIR}/build/esam-model.pt")
+
+    # Please set your desiered ESAM model (ESAM_ORIGINAL_FILE or ESAM_FAST_FILE) here.
+    file(RENAME ${ESAM_ORIGINAL_FILE} ${ESAM_FILE})
+    if(BUILD_ROS2)
+      file(COPY ${ESAM_FILE}
+          DESTINATION ${PROJECT_SOURCE_DIR}/resources/)
+    endif()
+
+    # Get Models for FindAnything: CLIP Vision
+    set(CLIP_URL "https://cvg.cit.tum.de/webshare/g/srl-models/findanything/vl-vision-model.pt")
+    set(CLIP_FILE "${PROJECT_SOURCE_DIR}/build/vl-vision-model.pt")
+    set(CLIP_HASH "SHA256=fbd6423f00f9389a3c9ada9d5b49205ac935afcc6a32230d2c061f057e3907fa")
+    check_hash("${CLIP_FILE}" "${CLIP_HASH}" CLIP_OK)
+    if(CLIP_OK)
+      message(STATUS "CLIP Vision Model already available. No Download needed!")
+    else()
+      file(DOWNLOAD
+        ${CLIP_URL}
+        ${CLIP_FILE}
+        EXPECTED_HASH ${CLIP_HASH}
+        TIMEOUT 500
+      )
+    endif()
+    if(BUILD_ROS2)
+      file(COPY ${CLIP_FILE}
+          DESTINATION ${PROJECT_SOURCE_DIR}/resources/)
+    endif()
+  endif()
 endif()
 
 if(NOT DO_TIMING)
@@ -360,6 +423,28 @@ if(BUILD_APPS)
       SRL::Projection
     )
 
+    add_executable(okvis2x_app_language_synchronous
+                   okvis_apps/src/okvis2x_app_network_synchronous.cpp)
+    target_compile_definitions(okvis2x_app_language_synchronous PUBLIC OKVIS_LANGUAGE_NETWORK_PROCESSOR)
+    target_link_libraries(okvis2x_app_language_synchronous
+      okvis_util
+      okvis_kinematics
+      okvis_time
+      okvis_cv
+      okvis_common
+      okvis_ceres
+      okvis_timing
+      okvis_frontend
+      okvis_multisensor_processing
+      okvis_deep_learning
+      okvis_mapping
+      pthread
+      ${Boost_LIBRARIES}
+      ${TORCH_LIBRARIES}
+      ${GeographicLib_LIBRARIES}
+      SRL::Supereight2
+      SRL::Projection
+    )
   endif()               
 endif()
 
@@ -385,6 +470,7 @@ if(BUILD_ROS2)
   find_package(cv_bridge REQUIRED)
   find_package(std_srvs REQUIRED)
   find_package(std_msgs REQUIRED)
+  find_package(language_feature_msgs REQUIRED)
   find_package(sensor_msgs REQUIRED)
   find_package(visualization_msgs REQUIRED)
   find_package(nav_msgs REQUIRED)
@@ -474,6 +560,7 @@ if(BUILD_ROS2)
     Eigen3
     sensor_msgs
     visualization_msgs
+    language_feature_msgs
     std_srvs
     nav_msgs
     pcl_conversions
@@ -584,8 +671,41 @@ if(BUILD_ROS2)
     )
     install(TARGETS okvis2x_depthfusion_network_node_subscriber DESTINATION lib/${PROJECT_NAME})
 
+    if(USE_COLIDMAP)
+      # W/ Vision-Language Mapping (FindAnything)
+      add_executable(okvis2x_language_network_node_subscriber okvis_ros2/src/okvis2x_network_node.cpp)
+      target_compile_definitions(okvis2x_language_network_node_subscriber PUBLIC OKVIS_LANGUAGE_NETWORK_PROCESSOR)
+      target_link_libraries(
+        okvis2x_language_network_node_subscriber
+        okvis::Ros2
+        ${OpenCV_LIBS}
+        ${SUITESPARSE_LIBRARIES}
+        ${Boost_LIBRARIES} 
+        ${PCL_LIBRARIES}
+        okvis::DeepLearning
+      )
+      ament_target_dependencies(okvis2x_language_network_node_subscriber std_msgs)
+      install(TARGETS okvis2x_language_network_node_subscriber DESTINATION lib/${PROJECT_NAME})
+    endif()
 
     if(HAVE_LIBREALSENSE)
+      if(USE_COLIDMAP)
+        # W/ Vision-Language Mapping (FindAnything)
+        add_executable(okvis2x_language_network_node_realsense okvis_ros2/src/okvis2x_network_node.cpp)
+        target_compile_definitions(okvis2x_language_network_node_realsense PUBLIC OKVIS_LANGUAGE_NETWORK_PROCESSOR SRL_NAV_USE_REALSENSE)
+        target_link_libraries(
+          okvis2x_language_network_node_realsense
+          okvis::Ros2
+          ${OpenCV_LIBS}
+          ${SUITESPARSE_LIBRARIES}
+          ${Boost_LIBRARIES} 
+          ${PCL_LIBRARIES}
+          okvis::DeepLearning
+        )
+        ament_target_dependencies(okvis2x_language_network_node_realsense std_msgs)
+        install(TARGETS okvis2x_language_network_node_realsense DESTINATION lib/${PROJECT_NAME})
+      endif()
+
       # W/ DepthFusion
       add_executable(okvis2x_depthfusion_network_node_realsense okvis_ros2/src/okvis2x_network_node.cpp)
       target_compile_definitions(okvis2x_depthfusion_network_node_realsense PUBLIC OKVIS_DFUSION_NETWORK_PROCESSOR SRL_NAV_USE_REALSENSE)

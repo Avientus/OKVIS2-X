@@ -12,7 +12,6 @@
 
 #include <okvis/assert_macros.hpp>
 #include <okvis/LidarMotionUndistortion.hpp>
-#include <okvis/VoxelGridFilter.hpp>
 #include <okvis/SubmappingUtils.hpp>
 
 namespace okvis{
@@ -34,8 +33,6 @@ bool LidarMotionUndistortion::deskew() {
   OKVIS_ASSERT_TRUE(std::runtime_error, imuMeasurementDeque_.front().timeStamp <= initialState_.timestamp, "IMU Measurement Mismatch Motion Undistortion with State");
   OKVIS_ASSERT_TRUE(std::runtime_error, imuMeasurementDeque_.back().timeStamp >= lidarScan_.back().timeStamp, "IMU Measurement Mismatch Motion Undistortion with Lidar");
 
-  lidarScanDeskewed_.reserve(lidarScan_.size());
-
   // do the propagation...
   kinematics::Transformation T_WS_0 = initialState_.T_WS;
   SpeedAndBias speedAndBias_0;
@@ -47,38 +44,38 @@ bool LidarMotionUndistortion::deskew() {
 
   State state;
   BatchedLidarPropagator propagator(initialState_.timestamp, imuMeasurementDeque_);
+  lidarScanPostProcessed_.reserve(lidarScan_.size());
 
   size_t i = 0;
-  if(lidarScan_.front().timeStamp == initialState_.timestamp){
+  kinematics::Transformation T_SliveL = T_SW_live_ * initialState_.T_WS * T_SL_;
+  //Check if the first lidar measurement timestamp is already the first state
+  auto lidarMeasurementIter = lidarScan_.begin();
+  if(lidarMeasurementIter->timeStamp == initialState_.timestamp){
     state = initialState_;
-    Eigen::Vector3d undistortedRay = T_SW_live_.T3x4() * state.T_WS.T() * T_SL_.T() * lidarScan_[i].measurement.rayMeasurement.homogeneous();
-    lidarScanDeskewed_.push_back(undistortedRay.cast<float>());
-    i++;
+    lidarScanPostProcessed_.push_back((T_SliveL.C() * lidarMeasurementIter->measurement.rayMeasurement + T_SliveL.r()).cast<float>());
+    lidarMeasurementIter++;
   }
 
   // Iterate measurements
-  for(/*i*/; i < lidarScan_.size(); i++) {
-    if(lidarScan_[i].timeStamp < initialState_.timestamp ) continue;
+  okvis::Time previousTime(0);
+  while(lidarMeasurementIter != lidarScan_.end()) {
+    if(lidarMeasurementIter->timeStamp < initialState_.timestamp ){
+      lidarMeasurementIter++;
+      continue;
+    }
 
-    propagator.appendTo(imuMeasurementDeque_,
-                        T_WS_0, speedAndBias_0, lidarScan_[i].timeStamp);
-    propagator.getState(T_WS_0, speedAndBias_0,
-                        T_WS_1, speedAndBias_1, state.omega_S);
-
-    state.T_WS = T_WS_1; // Transformation between World W and Sensor S.
-    state.v_W = speedAndBias_1.head<3>(); // Velocity in frame W [m/s].
-    state.b_g = speedAndBias_1.segment<3>(3); // Gyro bias [rad/s].
-    state.b_a = speedAndBias_1.tail<3>(); // Accelerometer bias [m/s^2].
-    // ToDo: The rest from here should not be needed?
-    state.timestamp = lidarScan_[i].timeStamp; // Timestamp corresponding to this state.
-    state.id = StateId(); // set invalid.
-    state.previousImuMeasurements = initialState_.previousImuMeasurements;
-    state.isKeyframe = false;
+    if(previousTime != lidarMeasurementIter->timeStamp ) {
+      propagator.appendTo(imuMeasurementDeque_,
+                          T_WS_0, speedAndBias_0, lidarMeasurementIter->timeStamp );
+      propagator.getState(T_WS_0, speedAndBias_0,
+                          T_WS_1, speedAndBias_1, state.omega_S);
+      previousTime = lidarMeasurementIter->timeStamp ;
+      T_SliveL = T_SW_live_ * T_WS_1 * T_SL_;
+    }
 
     // Write into return vector
-    Eigen::Vector3d undistortedRay =
-            T_SW_live_.T3x4() * state.T_WS.T() * T_SL_.T() * lidarScan_[i].measurement.rayMeasurement.homogeneous();
-    lidarScanDeskewed_.push_back(undistortedRay.cast<float>());
+    lidarScanPostProcessed_.push_back((T_SliveL.C() * lidarMeasurementIter->measurement.rayMeasurement + T_SliveL.r()).cast<float>());
+    ++lidarMeasurementIter;
   }
   return true;
 
@@ -86,48 +83,47 @@ bool LidarMotionUndistortion::deskew() {
 
 bool LidarMotionUndistortion::downsample(size_t num_output_points, double voxel_grid_resolution)
 {
-  if(lidarScanDeskewed_.empty()){
+  if(lidarScanPostProcessed_.empty()){
     return false;
   }
-  lidarScanDeskewedDownsampled_ = okvis::VoxelDownSample(lidarScanDeskewed_, voxel_grid_resolution);
-
-  // Check if voxel grid filtering already decreased number sufficiently, otherwise random subsampling
-  if(lidarScanDeskewedDownsampled_.size() > num_output_points){
-    std::vector<Eigen::Vector3f, Eigen::aligned_allocator<Eigen::Vector3f>> tmp;
-    okvis::downsamplePointCloud(lidarScanDeskewedDownsampled_, tmp, num_output_points);//todo:
-    lidarScanDeskewedDownsampled_.clear();
-    lidarScanDeskewedDownsampled_.insert(lidarScanDeskewedDownsampled_.end(), tmp.begin(), tmp.end());
-
-  }
+  okvis::VoxelDownSampleInplace(lidarScanPostProcessed_, voxel_grid_resolution);
+  randomDownsample(num_output_points);
   return true;
+}
+
+void LidarMotionUndistortion::randomDownsample(size_t num_output_points) {
+  if(lidarScanPostProcessed_.size() > num_output_points) {
+    std::shuffle(lidarScanPostProcessed_.begin(), lidarScanPostProcessed_.end(), std::mt19937{std::random_device{}()});
+    // then take first n
+    lidarScanPostProcessed_.resize(num_output_points);
+  }
+
+  return;
 }
 
 size_t LidarMotionUndistortion::filterObserved(const SupereightMapType* map, const okvis::kinematics::Transformation& T_WM)
 {
-  if(lidarScanDeskewed_.size() == 0)
+  if(lidarScanPostProcessed_.size() == 0)
   {
     return 0;
   }
 
-  size_t observed_counter = 0;
-  std::vector<Eigen::Vector3f, Eigen::aligned_allocator<Eigen::Vector3f>> observedPoints;
-  observedPoints.reserve(lidarScanDeskewed_.size());
+  Eigen::Matrix<float, 3, 4> T_MS_live = T_WM.inverse().T3x4().cast<float>() * T_WS_live_.T().cast<float>();
+  const Eigen::Matrix3f R_MS = T_MS_live.leftCols<3>();
+  const Eigen::Vector3f t_MS = T_MS_live.col(3);
 
-  for (auto measurementIter = lidarScanDeskewed_.begin(); measurementIter != lidarScanDeskewed_.end(); ){
-    // Transform se frame measurement into submap: T_WM.inverse() * T_WD * ray == world_to_submap*depth_to_submap * measurement_in_depth_sensor_frame
-    Eigen::Vector3f pt = T_WM.inverse().T3x4().cast<float>() * T_WS_live_.T().cast<float>() * measurementIter->homogeneous();
-    std::optional<float> occ = map->interpField<se::Safe::On>(pt);
-
-    if (occ){
-      observed_counter++;
-      observedPoints.push_back(*measurementIter);
+  size_t write_idx = 0;
+  
+  for (size_t i = 0; i < lidarScanPostProcessed_.size(); ++i) {
+    auto& lidarMeasurement = lidarScanPostProcessed_[i];
+    const Eigen::Vector3f pt = R_MS * lidarMeasurement + t_MS;
+    if (map->interpField<se::Safe::On>(pt)) {
+      lidarScanPostProcessed_[write_idx++] = lidarMeasurement;
     }
-    measurementIter++;
   }
-  lidarScanDeskewed_.clear();
-  lidarScanDeskewed_.insert(lidarScanDeskewed_.end(), observedPoints.begin(), observedPoints.end());
 
-  return observed_counter;
+  lidarScanPostProcessed_.resize(write_idx);
+  return write_idx;
 }
 
 }

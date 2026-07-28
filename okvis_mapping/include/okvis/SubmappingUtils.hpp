@@ -17,6 +17,7 @@
 #include <okvis/kinematics/Transformation.hpp>
 #include <okvis/ViInterface.hpp>
 #include <okvis/mapTypedefs.hpp>
+#include <random>
 
 namespace okvis{
 
@@ -70,9 +71,20 @@ namespace okvis{
     * \param downsampledPointCloud    Downsampled Point Cloud
     * \param num_of_points            Number of points in the resulting point cloud
     */
-    void downsamplePointCloud(const std::vector<Eigen::Vector3f, Eigen::aligned_allocator<Eigen::Vector3f>>& originalPointCloud,
-                              std::vector<Eigen::Vector3f, Eigen::aligned_allocator<Eigen::Vector3f>>& downsampledPointCloud,
-                              size_t num_of_points);
+    template<typename T>
+    inline void downsamplePointCloud(const std::vector<T, Eigen::aligned_allocator<T>>& originalPointCloud,
+                            std::vector<T, Eigen::aligned_allocator<T>>& downsampledPointCloud,
+                            size_t num_of_points)
+    {
+        // If not enough points provided, return all
+        if(num_of_points > originalPointCloud.size()){
+            downsampledPointCloud.insert(downsampledPointCloud.end(), originalPointCloud.begin(), originalPointCloud.end());
+        }
+        else{
+            std::sample(originalPointCloud.begin(), originalPointCloud.end(), std::back_inserter(downsampledPointCloud), num_of_points,
+                        std::mt19937{std::random_device{}()});
+        }
+    }
 
     /// \brief Given 3D points and its associated uncertainty, downsample points and sigma with low uncertainty
     void downsamplePointsUncertainty(const std::vector<Eigen::Vector3f, Eigen::aligned_allocator<Eigen::Vector3f>>& points, const std::vector<float>& sigmas,

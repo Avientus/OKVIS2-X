@@ -12,8 +12,10 @@
 #include <Eigen/Core>
 #include <vector>
 #include <Eigen/StdVector>
-
+#include <okvis/Time.hpp>
 #include <okvis/kinematics/Transformation.hpp>
+#include <okvis/Measurements.hpp>
+#include <unordered_set>
 
 namespace okvis{
 
@@ -31,7 +33,8 @@ namespace okvis{
     using Point3 = Eigen::Matrix<T,3,1>;
 
     template<typename T>
-    using Point3Cloud = std::vector<Point3<T>, Eigen::aligned_allocator<Point3<T>>> ;
+    using Point3Cloud = std::vector<Point3<T>, Eigen::aligned_allocator<Point3<T>>>;
+
     /**
      * Function for voxel grid based downsampling of a point cloud. Keeps original points instead of centroids.
      * This implementation is heavily inspired by the Kiss-ICP Code.
@@ -40,10 +43,8 @@ namespace okvis{
      * @return                  The downsampled point cloud
      */
     template<typename T>
-    Point3Cloud<T> VoxelDownSample(const Point3Cloud<T>& raw_point_cloud, double voxel_size);
+    inline Point3Cloud<T> VoxelDownSample(const Point3Cloud<T>& raw_point_cloud, double voxel_size){
 
-    template<typename T>
-    Point3Cloud<T> VoxelDownSample(const Point3Cloud<T>& raw_point_cloud, double voxel_size){
       std::unordered_map<Voxel, Point3<T>, VoxelHash> grid; // ToDo: Aligned Allocator needed here?
       grid.reserve(raw_point_cloud.size());
 
@@ -57,13 +58,36 @@ namespace okvis{
 
       Point3Cloud<T> downsampled_point_cloud;
       downsampled_point_cloud.reserve(grid.size());
-      for(const auto &[voxel, point] : grid){
-        (void)voxel;
+      for(const auto &[_, point] : grid){
         downsampled_point_cloud.push_back(point);
       }
 
       return downsampled_point_cloud;
 
+    }
+
+    /**
+     * Function for voxel grid based downsampling of a point cloud inplace. Keeps original points instead of centroids.
+     * This implementation is heavily inspired by the Kiss-ICP Code.
+     * @param raw_point_cloud   The original point cloud which will be inplace filtered
+     * @param voxel_size        Size of voxels of used voxel grid filter
+     */
+    template<typename T>
+    inline void VoxelDownSampleInplace(Point3Cloud<T>& raw_point_cloud, double voxel_size){
+
+      std::unordered_set<Voxel, VoxelHash> allocatedVoxels; // ToDo: Aligned Allocator needed here?
+      allocatedVoxels.reserve(raw_point_cloud.size());
+      size_t write_idx=0;
+
+      for(const auto &point : raw_point_cloud){
+        // This seems to assume a world-aligned (0-based) voxel grid
+        const auto voxel = Voxel((point/voxel_size).template cast<int>());
+        if(allocatedVoxels.insert(voxel).second){
+          raw_point_cloud[write_idx++] = point;
+        }
+      }
+      raw_point_cloud.resize(write_idx);
+      return;
     }
 
     /**

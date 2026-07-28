@@ -282,7 +282,7 @@ int main(int argc, char **argv) {
       seInterface->setSubmapCallback(std::bind(
         &okvis::Publisher::publishSubmapsAsCallback, 
         &publisher, 
-        std::placeholders::_1, std::placeholders::_2)
+        std::placeholders::_1, std::placeholders::_2, std::placeholders::_3)
       );
 
       // Set occupancy grid callback

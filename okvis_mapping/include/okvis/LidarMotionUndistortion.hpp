@@ -17,6 +17,7 @@
 #include <okvis/ViInterface.hpp>
 #include <okvis/mapTypedefs.hpp>
 #include <se/map/map.hpp>
+#include <okvis/VoxelGridFilter.hpp>
 
 namespace okvis{
     class LidarMotionUndistortion{
@@ -40,23 +41,20 @@ namespace okvis{
         /// \brief Function doing motion undistortion based on latest state and imu measurements
         bool deskew();
 
-        /// \brief Return reference to deskewed point cloud
-        std::vector<Eigen::Vector3f, Eigen::aligned_allocator<Eigen::Vector3f>> & deskewedPointCloud(){
-          return lidarScanDeskewed_;
-        }
-
         /// \brief Function doing voxel hash grid based downsampling
         bool downsample(size_t num_output_points, double voxel_grid_resolution=0.1);
 
         /// \brief Return reference to downsampled, deskewed point cloud
         std::vector<Eigen::Vector3f, Eigen::aligned_allocator<Eigen::Vector3f>>& deskewedDownsampledPointCloud(){
-          return lidarScanDeskewedDownsampled_;
+          return lidarScanPostProcessed_;
         }
 
         /// \brief Check which points are actually observed
         /// @param map
         /// @param T_WM
         size_t filterObserved(const SupereightMapType* map, const okvis::kinematics::Transformation& T_WM);
+
+        void randomDownsample(size_t num_output_points);
 
     private:
 
@@ -65,10 +63,7 @@ namespace okvis{
         kinematics::Transformation T_SW_live_; ///< Inverse
         kinematics::Transformation T_SL_; ///< Extrinsics IMU (S) <-> Lidar (L)
         LidarMeasurementDeque lidarScan_;
-        std::vector<Eigen::Vector3f, Eigen::aligned_allocator<Eigen::Vector3f>> lidarScanDeskewed_;
-        //LidarMeasurementDeque lidarScanDeskewed_;
-        std::vector<Eigen::Vector3f, Eigen::aligned_allocator<Eigen::Vector3f>> lidarScanDeskewedDownsampled_;
-        //LidarMeasurementDeque lidarScanDeskewedDownsampled_;
+        Point3Cloud<float> lidarScanPostProcessed_;
         ImuMeasurementDeque imuMeasurementDeque_;
 
     };

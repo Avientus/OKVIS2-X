@@ -17,11 +17,42 @@
 </strong>
 </div>
 
-### Overview
+<div align="center">
+<h1>FindAnything: Open-Vocabulary and Object-Centric Mapping for Robot Exploration in Any Environment</h1>
+<a href="https://arxiv.org/abs/2504.08603"><img src="https://img.shields.io/badge/arXiv-2504.08603-blue?style=flat"></a>
+<a href="https://www.youtube.com/watch?v=ovmWyqGhA1o"><img src="https://img.shields.io/badge/YouTube-red?style=flat"></a>
+<a href="LICENSE"><img src="https://img.shields.io/badge/License-BSD3-yellow?style=flat"></a>
+<br>
+<strong>
+<a href="https://srl.cit.tum.de/members/barba">Sebastián Barbas Laina<sup>*1</sup></a> &nbsp;&nbsp;
+<a href="https://srl.cit.tum.de/members/boche">Simon Boche<sup>*1</sup></a> &nbsp;&nbsp;
+<a href="https://sotiris.papatheodorou.xyz/">Sotiris Papatheodorou<sup>*2</sup></a> &nbsp;&nbsp;
+<a href="https://srl.cit.tum.de/members/schaefer">Simon Schaefer<sup>1</sup></a> &nbsp;&nbsp;
+<a href="https://lastflowers.github.io">Jaehyung Jung<sup>1</sup></a> &nbsp;&nbsp;
+<a href="https://helenol.com/research/">Helen Oleynikova<sup>3</sup></a> &nbsp;&nbsp;
+<a href="https://mrl.ethz.ch/the-group/people/lab-members/stefan-leutenegger.html">Stefan Leutenegger<sup>3</sup></a>
+<br>
+<sup>*</sup> Equal contribution &nbsp;&nbsp;
+<sup>1</sup> Technical University of Munich &nbsp;&nbsp;
+<sup>2</sup> University of Patras &nbsp;&nbsp;
+<sup>3</sup> ETH Zurich
+</strong>
+</div>
+
+### Overview (OKVIS2-X)
 OKVIS2-X is a multi-sensor SLAM system based on a factor graph, and is a non-trivial extension of the sparse, landmark-based [OKVIS2](https://github.com/ethz-mrl/okvis2). OKVIS2-X supports fusing multiple cameras and an IMU, with optional integration of a GNSS receiver and LiDAR or depth images (from a depth network or depth sensor). For map representation, OKVIS2-X uses submap-based volumetric occupancy to seamlessly support robot exploration and navigation.
 
 <div align="center">
   <img src="resources/readme/okvis2x-showcase.gif" alt="Demo">
+</div>
+
+### Overview (FindAnything)
+FindAnything is an open-world mapping framework that incorporates vision-language information into dense volumetric submaps. Thanks to the use of vision-language features, FindAnything combines pure geometric and open-vocabulary semantic information for a higher level of understanding. It proposes an efficient storage of open-vocabulary information through the aggregation of features at the object level. Pixelwise vision-language features are aggregated based on eSAM segments, which are in turn integrated into object-centric volumetric submaps, providing a mapping from open-vocabulary queries to 3D geometry that is scalable also in terms of memory usage.
+
+<div align="center">
+  <a href="https://www.youtube.com/watch?v=ovmWyqGhA1o">
+    <img src="resources/readme/findanything-topfigure.png" alt="FindAnything Demo">
+  </a>
 </div>
 
 ---
@@ -29,21 +60,24 @@ OKVIS2-X is a multi-sensor SLAM system based on a factor graph, and is a non-tri
 ### Related Papers
 <details>
   <summary>Click to expand</summary>
-  [1] [OKVIS2-X:  Open Keyframe-based Visual-Inertial SLAM Configurable with Dense Depth or LiDAR, and GNSS (IEEE T-RO 2025 - Special Issue Visual SLAM)](https://arxiv.org/abs/2510.04612)
 
-  [2] [OKVIS2: Realtime Scalable Visual-Inertial SLAM with Loop Closure (arXiv 2022)](https://arxiv.org/abs/2202.09199)
+  [1] [OKVIS2-X: Open Keyframe-based Visual-Inertial SLAM Configurable with Dense Depth or LiDAR, and GNSS (IEEE T-RO 2025 - Special Issue Visual SLAM)](https://arxiv.org/abs/2510.04612)
 
-  [3] [Tightly-coupled LiDAR-visual-inertial SLAM and large-scale volumetric occupancy mapping (ICRA 2024)](https://arxiv.org/abs/2403.02280)
+  [2] [FindAnything: Open-Vocabulary and Object-Centric Mapping for Robot Exploration in Any Environment (ICRA 2026)](https://arxiv.org/abs/2504.08603) 
+  
+  [3] [OKVIS2: Realtime Scalable Visual-Inertial SLAM with Loop Closure (arXiv 2022)](https://arxiv.org/abs/2202.09199)
 
-  [4] [Uncertainty-Aware Visual-Inertial SLAM with Volumetric Occupancy Mapping (ICRA 2025)](https://arxiv.org/abs/2409.12051)
+  [4] [Tightly-coupled LiDAR-visual-inertial SLAM and large-scale volumetric occupancy mapping (ICRA 2024)](https://arxiv.org/abs/2403.02280)
 
-  [5] [Visual-Inertial SLAM with Tightly-Coupled Dropout-Tolerant GPS Fusion (IROS 2022)](https://arxiv.org/abs/2208.00709)
+  [5] [Uncertainty-Aware Visual-Inertial SLAM with Volumetric Occupancy Mapping (ICRA 2025)](https://arxiv.org/abs/2409.12051)
 
-  [6] [Multi-Resolution 3D Mapping with Explicit Free Space Representation for Fast and Accurate Mobile Robot Motion Planning (RA-L 2021)](https://arxiv.org/abs/2010.07929)
+  [6] [Visual-Inertial SLAM with Tightly-Coupled Dropout-Tolerant GPS Fusion (IROS 2022)](https://arxiv.org/abs/2208.00709)
 
-  This is the implementation of [1]. It is further based on the work presented in [2-6].
+  [7] [Multi-Resolution 3D Mapping with Explicit Free Space Representation for Fast and Accurate Mobile Robot Motion Planning (RA-L 2021)](https://arxiv.org/abs/2010.07929)
 
-  If you publish work that relates to this software, please cite at least [1].
+  This is the implementation of [1]&[2]. It is further based on the work presented in [3-7].
+
+  If you publish work that relates to this software, please cite at least [1] or [2].
 </details>
 
 ```tex
@@ -57,6 +91,15 @@ OKVIS2-X is a multi-sensor SLAM system based on a factor graph, and is a non-tri
   pages={6064-6083},
   doi={10.1109/TRO.2025.3619051}}
 
+```
+
+```tex
+@article{laina2025findanything,
+  title={FindAnything: Open-Vocabulary and Object-Centric Mapping for Robot Exploration in Any Environment},
+  author={Laina, Sebasti{\'a}n Barbas and Boche, Simon and Papatheodorou, Sotiris and Schaefer, Simon and Jung, Jaehyung and Oleynikova, Helen and Leutenegger, Stefan},
+  journal={arXiv preprint arXiv:2504.08603},
+  year={2025}
+}
 ```
 ---
 
@@ -80,7 +123,7 @@ The 3-clause BSD license (see file LICENSE) applies.
 ### How do I get set up? ###
 #### Ubuntu ####
 
-OKVIS2-X has been tested on Ubuntu 20.04, 22.04, and 24.04.
+OKVIS2-X and FindAnything have both been tested on Ubuntu 20.04, 22.04, and 24.04.
 
 This is a pure cmake project.
 You will need to install the following dependencies,
@@ -128,7 +171,7 @@ You will need to install the following dependencies,
 
         sudo apt-get install libpcl-dev
   
-* LibTorch: if you want to run depth networks (stereo network and multi-view stereo network) or segmentation CNN to remove Sky points etc, install with instructions from the link below. Get the C++ version with C++11 ABI with or without CUDA
+* LibTorch: If you want to run **FindAnything** or if you want to run depth networks (stereo network and multi-view stereo network) or segmentation CNN to remove Sky points etc, install with instructions from the link below. Get the C++ version with C++11 ABI with or without CUDA
   (depending on availability on your machine):
 
     https://pytorch.org/get-started/locally/
@@ -171,7 +214,7 @@ To change the cmake build type for the whole project use:
     cmake -DCMAKE_BUILD_TYPE=Release ..
     make -j<num_job>
 
-When running the command `cmake -DCMAKE_BUILD_TYPE=Release ..` keep in mind that based on your optional configurations, you might have to add the following command line options.
+When running the command `cmake -DCMAKE_BUILD_TYPE=Release ..` keep in mind that based on your optional configurations, you might have to add the following command line options. Nonetheless, if you want to run **FindAnything**, make sure to set to ON the the color and id mapping `-DUSE_COLIDMAP=ON`
 
 If you do not have a realsense installed:
 
@@ -191,6 +234,7 @@ To run a synchronous processing of datasets (as used for the paper results), the
 * `okvis2x_app_synchronous`: Runs OKVIS2-X with dense mapping either based on provided depth images or LiDAR measurements
 * `okvis2x_app_snetwork_synchronous`: Runs OKVIS2-X with dense mapping based on Depth Prediction from the Stereo Network
 * `okvis2x_app_depthfusion_synchronous`: Runs OKVIS2-X with dense mapping based on Depth Fusion (adding MVS network)
+* `okvis2x_app_language_synchronous`: FindAnything (see [here](eval/findanything/replica/) for evaluation details)
 
 The apps can be run as follows:
 ```bash
@@ -204,11 +248,33 @@ The apps can be run as follows:
 
 # Example 3) Visual-Inetial-DepthFusion configuration
 ./okvis2x_app_depthfusion_synchronous ../config/euroc/okvis2.yaml ../config/euroc/se2.yaml /path/to/euroc/mav0/ /path/to/output/directory/
+
+# Example 4) FindAnything
+./okvis2x_app_language_synchronous ../config/replica/okvis2.yaml ../config/replica/se2.yaml /path/to/replica/dataset/ /path/to/output/directory/
 ```
 * `okvis2-config`: parameter file for state-estimation related parameters
 * `se2-config`: parameter file for mapping related parameters
 
 You find examples for the datasets used in the paper in the respective subfolders in `./config`.
+
+### Output Files
+<details>
+  <summary>Click to expand</summary>
+  In general, the apps will produce the following output files:
+
+
+  * Estiamted Trajectories as `*.csv` files:
+    * `okvis2-[slam/vio]_trajectory.csv` : causal trajectory
+    * `okvis2-[slam/vio]-final_trajectory.csv` : non-causal (loop-closed) trajectory
+    * `okvis2-[slam/vio]-final-ba_trajectory.csv` : after final Bundle Adjustment (BA, if specified in config file)
+  * (with dense mapping enabled): Meshes of submaps (*.ply format); can be viewed e.g. in ParaView or MeshLab
+  * Additional FindAnything outputs:
+    * Mesh Faces colored according to Object ID
+    * `objectMap[submapId].csv`: Export of Object/Segment Informatio (ID, #vertices, centroid, bounding box, feature vector)
+    * `activationMesh_[keyframeId].ply`: Mesh with coloring according to feature similarity (right now, the feature is hard-coded in the Non-ROS setup)
+
+  The result directory can be specified via the command line when running the application.
+</details>
 
 ### Dataset Format ###
 <details>
@@ -296,8 +362,7 @@ You find examples for the datasets used in the paper in the respective subfolder
   Note: The `DatasetReaderBase` class defines a variable `GNSS_LEAP_NANOSECONDS` which is used in the dataset readers to account for GNSS Leap seconds if needed (Offset of GNSS (usually atomic) clock to UTC). It is by default set to 0 but in case you need to consider them in your dataset, set it to the correct value (currently 18e+9).
 
   #### Submapping (Depth, Stereo Depth, Depth Fusion or LiDAR)
-  For dense submapping based on Supereight2 [6], specify the type of sensor in the mapping config file ("depth" or "lidar"). TODO: Is this needed? I think this is the old ways.
-  You can enable the fusion of submap alignment factors by enabling `use_map_to_map_factors` or `use_map_to_live_factors` in the mapping config file  
+  You can enable the fusion of submap alignment factors by enabling `use_map_to_map_factors` or `use_map_to_live_factors` in the mapping config file.  
 
   When running OKVIS2-X with LiDAR and submap alignment, you also have to add a lidar block in the estimator config. This can look as follows:
   ```yaml
@@ -326,6 +391,8 @@ You find examples for the datasets used in the paper in the respective subfolder
       fov_scale: 1.0
   ```
 
+  When running **FindAnything**, you have to ensure that there is a camera defined to have RGB data and a camera that has depth information. Please check our wiki for more information! 
+
   #### Pretrained models for depth networks
   We provide pretrained models, which predict both depth and its pixel-wise uncertainty, for the stereo network based on [Unimatch](https://github.com/autonomousvision/unimatch) and multi-view stereo network based on [SimpleRecon](https://github.com/nianticlabs/simplerecon). Please note that we provide two versions of the stereo network: `stereo-indoor-sigma.pt` and `stereo-mix-sigma.pt`. Please specify which model you would use in the top-level CMakeLists.txt. We used `stereo-indoor-sigma.pt` for the EuRoC and Hilti-Oxford dataset and `stereo-mix-sigma.pt` for the VBR dataset in the paper's evaluation.
 
@@ -333,6 +400,9 @@ You find examples for the datasets used in the paper in the respective subfolder
     # Please set your desiered stereo depth model (DEPTH_FAST_FILE or DEPTH_ACCURACY_FILE) here.
     file(RENAME ${DEPTH_FAST_FILE} ${DEPTH_FILE})
   ```
+
+  #### Pretrained models for open-vocabulary mapping
+  We provide pretrained models for **FindAnything**. These are [eSAM](https://github.com/yformer/EfficientSAM) for mask proposals, and Mask-CLIP, based on the implementation from [f3rm](https://github.com/f3rm/f3rm). It is important to note that these can be exchanged for any model desired by the user as long as the format is the same as for the networks that we provide. 
 
   #### Online Calibration of Camera-IMU extrinsics
   You can enable online calibration of the Camera-IMU extrinsics by setting the respective parameters of the `online_calibration` parameters block in the `okvis-config`.
@@ -386,6 +456,8 @@ You find examples for the datasets used in the paper in the respective subfolder
 
       git clone --recurse-submodules git@github.com:ethz-mrl/OKVIS2-X.git
 
+  Note: to successfully build and run the OKVIS2X nodes, you also need the following packages: `language_feature_node` , `language_feature_msgs` (all in our GitHub)
+
   You may want to run rosdep to make sure all dependencies are installed.
 
   Next, you can build:
@@ -406,10 +478,13 @@ You find examples for the datasets used in the paper in the respective subfolder
       # With depth network without color fusion
       colcon build --cmake-args -DUSE_NN=ON -DUSE_COLIDMAP=OFF
 
+      # With networks (eSAM and CLIP) and color fusion, a requirement for FindAnything
+      colcon build --cmake-args -DUSE_NN=ON -DUSE_COLIDMAP=ON
+
       # With depth sensor or lidar without color fusion
       colcon build --cmake-args -DUSE_NN=OFF -DUSE_COLIDMAP=OFF
 
-  Currently, the lidar nodes and MVS depth fusion nodes only support `-DUSE_COLIDMAP=OFF` (colour fusion is not implemented; the published meshes will be empty otherwise due to the lack of color information; everything else will work fine still).
+  Currently, the lidar nodes only support `-DUSE_COLIDMAP=OFF` (colour fusion is not implemented).
 
   #### Running ROS2 nodes ####
 
@@ -428,18 +503,17 @@ You find examples for the datasets used in the paper in the respective subfolder
 
   There are two type of nodes: subscriber nodes and realsense nodes.
 
-  
-  For the subscriber nodes, there are 4 different modes: `lidar`, `depth_image` (ros2 topic providing depth images), `stereo_network` (Stereo Depth Prediction), `depth_fusion` (MVS Depth Fusion)
+  For the subscriber nodes, there are 5 different modes: `lidar`, `depth_image` (ros2 topic providing depth images), `stereo_network` (Stereo Depth Prediction), `depth_fusion` (MVS Depth Fusion), `vision_language` (FindAnything)
 
   ```bash
   ros2 launch okvis okvis2x_node_subscriber.launch.xml config_filename:=[config] se_config_filename:=[se2_config] \ 
-      [lidar/depth_image/stereo_network/depth_fusion]:=true
+      [lidar/depth_image/stereo_network/depth_fusion/vision_language]:=true
   ```
 
-  For the realsense nodes, there are 3 different modes: `depth_image` (ros2 topic providing depth images), `stereo_network` (Stereo Depth Prediction), `depth_fusion` (MVS Depth Fusion)
+  For the realsense nodes, there are 4 different modes: `depth_image` (ros2 topic providing depth images), `stereo_network` (Stereo Depth Prediction), `depth_fusion` (MVS Depth Fusion), `vision_language` (FindAnything)
   ```bash
   ros2 launch okvis okvis2x_node_realsense.launch.xml config_filename:=[config] se_config_filename:=[se2_config] \ 
-      [lidar/depth_image/stereo_network/depth_fusion]:=true
+      [lidar/depth_image/stereo_network/depth_fusion/vision_language]:=true
   ```
 
   For the VI-only mode (OKVIS2-X without submapping), please set `enable_submapping=false` in `[config]` and launch with `depth_image:=true`. This will fall back to OKVIS2.
@@ -455,6 +529,7 @@ You find examples for the datasets used in the paper in the respective subfolder
   ```bash
   ros2 service call /okvis/shutdown std_srvs/srv/SetBool
   ```
+  * To run the **FindAnything** nodes you need additionally the `language_feature_node` and `language_feature_msgs` (for text queries) in your workspace: https://github.com/ethz-mrl/language_feature_node and https://github.com/ethz-mrl/language_feature_msgs.
 </details>
 
 

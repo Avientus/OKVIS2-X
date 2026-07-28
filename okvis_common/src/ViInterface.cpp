@@ -230,7 +230,8 @@ bool Trajectory::getState(const Time & timestamp, State& state) {
   return true;
 }
 
-bool Trajectory::getStates(const std::vector<Time> & timestamps, std::vector<State>& states) {
+bool Trajectory::getStatePoses(const std::vector<Time> & timestamps, 
+                           std::vector<Eigen::Matrix4d, Eigen::aligned_allocator<Eigen::Matrix4d>>& statePoses) {
   // Use first timestamp to obtain closest timestamp
   if(timestamps.size() == 0){
     return false;
@@ -284,62 +285,54 @@ bool Trajectory::getStates(const std::vector<Time> & timestamps, std::vector<Sta
   SpeedAndBias speedAndBias_1;
 
   auto nextiter = iter;
-  nextiter ++;
-
   State state;
+  nextiter ++;
+  okvis::Time prevTime(0);
+
   if(!state1.previousImuMeasurements.empty()) {
     BatchedLidarPropagator propagator(state0.timestamp, state1.previousImuMeasurements);
     // Iterate measurements
-    //std::cout << "### Getting states is called for id = " << iter->first << std::endl;
     for(size_t i = 0; i < timestamps.size(); i++){
-      if(statesByTimestampNs_.count(timestamps[i].toNSec())) {
-        const StateId stateId = statesByTimestampNs_.at(timestamps[i].toNSec());
-        State state;
-        getState(stateId, state);
-        states.emplace_back(state);
-        continue;
+      if(timestamps[i] != prevTime) {
+        if(nextiter->first == timestamps[i].toNSec()) {
+          const StateId stateId = nextiter->second;
+          getState(stateId, state);
+          statePoses.push_back(state.T_WS.T());
+          nextiter++;
+          if(nextiter == statesByTimestampNs_.end()) {
+            break;
+          }
+          continue;
+        }
+        propagator.appendTo(state1.previousImuMeasurements,
+                            T_WS_0, speedAndBias_0, timestamps[i]);
+        propagator.getState(T_WS_0, speedAndBias_0,
+                            T_WS_1, speedAndBias_1, state.omega_S);
+        prevTime = timestamps[i];
       }
-      propagator.appendTo(state1.previousImuMeasurements,
-                          T_WS_0, speedAndBias_0, timestamps.at(i));
-      propagator.getState(T_WS_0, speedAndBias_0,
-                          T_WS_1, speedAndBias_1, state.omega_S);
-
-      state.T_WS = T_WS_1; // Transformation between World W and Sensor S.
-      state.v_W = speedAndBias_1.head<3>(); // Velocity in frame W [m/s].
-      state.b_g = speedAndBias_1.segment<3>(3); // Gyro bias [rad/s].
-      state.b_a = speedAndBias_1.tail<3>(); // Accelerometer bias [m/s^2].
-      state.timestamp = timestamps[i]; // Timestamp corresponding to this state.
-      state.id = StateId(); // set invalid.
-      state.previousImuMeasurements = state0.previousImuMeasurements;
-      state.isKeyframe = false;
-      // Write into return vector
-      states.emplace_back(state);
+      // Intentional: duplicate timestamps reuse the previously propagated T_WS_1
+      statePoses.push_back(T_WS_1.T());
     }
   } else {
     ConstantVelocityPropagator propagator(state0, state1);
     //Assume that we are in the no IMU case and then we perform a constant velocity model
     for(size_t i = 0; i < timestamps.size(); i++){
-      if(statesByTimestampNs_.count(timestamps[i].toNSec())) {
-        const StateId stateId = statesByTimestampNs_.at(timestamps[i].toNSec());
-        State state;
-        getState(stateId, state);
-        states.emplace_back(state);
-        continue;
-      }
-      //We add here the constant linear velocity model
-      propagator.getState(timestamps[i],
+      if(timestamps[i] != prevTime) {
+        if(nextiter->first == timestamps[i].toNSec()) {
+          const StateId stateId = nextiter->second;
+          getState(stateId, state);
+          statePoses.push_back(state.T_WS.T());
+          nextiter++;
+          if(nextiter == statesByTimestampNs_.end()) {
+            break;
+          }
+          continue;
+        }
+        propagator.getState(timestamps[i],
                           T_WS_1, speedAndBias_1, state.omega_S);
-
-      state.T_WS = T_WS_1; // Transformation between World W and Sensor S.
-      state.v_W = speedAndBias_1.head<3>(); // Velocity in frame W [m/s].
-      state.b_g = speedAndBias_1.segment<3>(3); // Gyro bias [rad/s].
-      state.b_a = speedAndBias_1.tail<3>(); // Accelerometer bias [m/s^2].
-      state.timestamp = timestamps[i]; // Timestamp corresponding to this state.
-      state.id = StateId(); // set invalid.
-      state.previousImuMeasurements = state0.previousImuMeasurements;
-      state.isKeyframe = false;
-      // Write into return vector
-      states.emplace_back(state);
+        prevTime = timestamps[i];
+      }
+      statePoses.push_back(T_WS_1.T());
     }
 
   }

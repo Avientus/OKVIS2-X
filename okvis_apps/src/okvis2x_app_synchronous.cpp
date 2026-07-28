@@ -48,6 +48,16 @@ int main(int argc, char **argv)
   FLAGS_colorlogtostderr = 1;
   FLAGS_minloglevel = 0;
 
+  // Check if Environment Variable for OMP is set (recommended)
+  if (!std::getenv("OMP_NUM_THREADS")) {
+    LOG(WARNING) << "OMP_NUM_THREADS not set. It is recommended to set it to achieve fast depth integration of Supereight2 (e.g. 3 or 5 depending on the user's system.)";
+    std::this_thread::sleep_for(std::chrono::seconds(3)); // Pause thread to highlight warning
+  }
+  else{
+    const char* env_p = std::getenv("OMP_NUM_THREADS");
+    LOG(INFO) << "OMP_NUM_THREADS is set to: " << env_p;
+  }
+
   // read configuration file
   std::string configFilename(argv[1]);
   std::string seConfigFilename(argv[2]);
@@ -62,13 +72,20 @@ int main(int argc, char **argv)
   const bool isDepth = parameters.lidar ? false : true;
   const bool isLidar = !isDepth;
   const bool isSubmapping = parameters.output.enable_submapping;
+  bool isRgb = false;
+  for(size_t i = 0; i < parameters.nCameraSystem.numCameras(); i++) {
+    if(parameters.nCameraSystem.cameraType(i).isColour) {
+      isRgb = true;
+      LOG(INFO) << "RGB camera detected at camera id " << i;
+    }
+  }
 
   // dataset reader
   std::string path(argv[3]);
   std::shared_ptr<okvis::XDatasetReader> datasetReader;
   okvis::Duration deltaT(0.0); // time tolerance to callbacks
   if (isSubmapping) {
-    datasetReader.reset(new okvis::XDatasetReader(path, deltaT, parameters, isLidar, false, isDepth));
+    datasetReader.reset(new okvis::XDatasetReader(path, deltaT, parameters, isLidar, false, isDepth, isRgb));
   }
   else {
     datasetReader.reset(new okvis::XDatasetReader(path, deltaT, parameters, false, false, false));

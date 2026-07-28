@@ -38,6 +38,13 @@ DepthFusionProcessor::DepthFusionProcessor(okvis::ViParameters &parameters, std:
   idLeft_ = parameters.camera.stereo_indices[0];
   idRight_ = parameters.camera.stereo_indices[1];
 
+  // Find color camera if available.
+  for(size_t i = 0; i < parameters.nCameraSystem.numCameras(); i++) {
+    if(parameters.nCameraSystem.cameraType(i).isColour) {
+      idColor_ = i; 
+    }
+  }
+
   Eigen::VectorXd intrinsics;
   kinematics::Transformation T_lr;
   if(!parameters.nCameraSystem.cameraType(idLeft_).depthType.needRectify) {
@@ -275,6 +282,9 @@ void DepthFusionProcessor::processStereoNetwork(std::map<size_t, std::vector<okv
   stereoOutput.measurement.rightImage = frame1.measurement.image;
   stereoOutput.measurement.depth = outputDepth;
   stereoOutput.measurement.sigma = outputSigma;
+  if (idColor_) {
+    stereoOutput.measurement.rgbImage = frames.at(*idColor_).front().measurement.image;
+  }
 
   // Queue for the MVS network.
   if (blocking_) {
@@ -436,6 +446,14 @@ void DepthFusionProcessor::processMVSnetwork(StereoPrediction& stereoPrediction)
       camMeasurement.measurement.sigmaImage = outputSigmaMat.clone();
       frames[idLeft_] = {camMeasurement};
 
+      if (idColor_ && !stereoPrediction.measurement.rgbImage.empty()) {
+        okvis::CameraMeasurement rgbMeasurement;
+        rgbMeasurement.timeStamp = camMeasurement.timeStamp;
+        rgbMeasurement.sensorId = *idColor_;
+        rgbMeasurement.measurement.image = stereoPrediction.measurement.rgbImage.clone();
+        frames[*idColor_] = {rgbMeasurement};
+      }
+
       // Callback
       if(imageCallback_) {
         imageCallback_(frames);
@@ -465,6 +483,14 @@ void DepthFusionProcessor::processMVSnetwork(StereoPrediction& stereoPrediction)
     camMeasurement.measurement.depthImage = outputDepthMat.clone();
     camMeasurement.measurement.sigmaImage = outputSigmaMat.clone();
     frames[idLeft_] = {camMeasurement};
+
+    if (idColor_ && !stereoPrediction.measurement.rgbImage.empty()) {
+      okvis::CameraMeasurement rgbMeasurement;
+      rgbMeasurement.timeStamp = camMeasurement.timeStamp;
+      rgbMeasurement.sensorId = *idColor_;
+      rgbMeasurement.measurement.image = stereoPrediction.measurement.rgbImage.clone();
+      frames[*idColor_] = {rgbMeasurement};
+    }
 
     if(imageCallback_) {
       imageCallback_(frames);

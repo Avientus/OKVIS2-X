@@ -10,7 +10,6 @@
  * SPDX-License-Identifier: BSD-3-Clause, see LICENESE file for details
  */
 
-#include <random>
 #include <okvis/SubmappingUtils.hpp>
 
 namespace okvis{
@@ -86,21 +85,6 @@ void save_bounding_box_vtk(const se::Submap<okvis::SupereightMapType>& submap, c
 
 }
 
-    // ToDo: template!
-void downsamplePointCloud(const std::vector<Eigen::Vector3f, Eigen::aligned_allocator<Eigen::Vector3f>>& originalPointCloud,
-                          std::vector<Eigen::Vector3f, Eigen::aligned_allocator<Eigen::Vector3f>>& downsampledPointCloud,
-                          size_t num_of_points)
-{
-  // If not enough points provided, return all
-  if(num_of_points > originalPointCloud.size()){
-    downsampledPointCloud.insert(downsampledPointCloud.end(), originalPointCloud.begin(), originalPointCloud.end());
-  }
-  else{
-    std::sample(originalPointCloud.begin(), originalPointCloud.end(), std::back_inserter(downsampledPointCloud), num_of_points,
-                std::mt19937{std::random_device{}()});
-  }
-
-}
 
 void downsamplePointsUncertainty(
   const std::vector<Eigen::Vector3f, Eigen::aligned_allocator<Eigen::Vector3f>>& points, const std::vector<float>& sigmas,

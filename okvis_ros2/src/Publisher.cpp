@@ -47,6 +47,7 @@ Publisher::Publisher(
       trajectoryLocked_(false)
 {
   setupNode(node);
+  text_embedding_vector_ = Descriptor(okvis::chair_embedding.data());
 }
 
 void Publisher::setupNode(std::shared_ptr<rclcpp::Node> node)
@@ -413,10 +414,12 @@ void Publisher::publishEstimatorUpdate(
 
 void Publisher::setupImageTopics(const okvis::cameras::NCameraSystem & nCameraSystem) {
   pubImages_.clear();
+  bool rgb_found = false;
   for(size_t i=0; i< nCameraSystem.numCameras(); ++i) {
     std::string name;
     if(nCameraSystem.cameraType(i).isColour) {
       name = "rgb"+std::to_string(i);
+      rgb_found = true;
     } else {
       name = "cam"+std::to_string(i);
     }
@@ -424,6 +427,13 @@ void Publisher::setupImageTopics(const okvis::cameras::NCameraSystem & nCameraSy
   }
   std::string name = "Top Debug View";
   pubImages_[name] = threadedImagePublisher_->registerPublisher<sensor_msgs::msg::Image>("top_debug_view");
+  skip_uncolored_ = rgb_found;
+#ifdef OKVIS_COLIDMAP
+  name = "language_rgb";
+  pubImages_[name] = threadedImagePublisher_->registerPublisher<sensor_msgs::msg::Image>("language_rgb");
+  name = "sam_masks";
+  pubImages_[name] = threadedImagePublisher_->registerPublisher<sensor_msgs::msg::Image>("sam_masks");  
+#endif
 }
 
 void Publisher::setMeshesPath(std::string meshesDir){
@@ -484,7 +494,8 @@ void Publisher::setupNetworkTopics(const std::string & topicName) {
 }
 
 void Publisher::publishSubmapsAsCallback(std::unordered_map<uint64_t, okvis::kinematics::Transformation, std::hash<uint64_t>, std::equal_to<uint64_t>, Eigen::aligned_allocator<std::pair<const uint64_t, okvis::kinematics::Transformation>>> submapPoseLookup,
-                                         std::unordered_map<uint64_t, std::shared_ptr<okvis::SupereightMapType>> submapLookup) 
+                                         std::unordered_map<uint64_t, std::shared_ptr<okvis::SupereightMapType>> submapLookup,
+                                         std::shared_ptr<okvis::ObjectMap> objectMap) 
 {
   constexpr size_t n = okvis::SupereightMapType::SurfaceMesh::value_type::num_vertexes;
 
@@ -510,9 +521,13 @@ void Publisher::publishSubmapsAsCallback(std::unordered_map<uint64_t, okvis::kin
     meshMarker.type = visualization_msgs::msg::Marker::TRIANGLE_LIST;
     meshMarker.action = visualization_msgs::msg::Marker::ADD;
 
+    bool containsObjects = objectMap->containsMap(it.first);
 
     if(submapSurfaceMesh_.find(it.first) == submapSurfaceMesh_.end()){
       submapSurfaceMesh_[it.first] = se::algorithms::marching_cube(it.second->getOctree());
+      if(containsObjects) {
+        submapObjects_[it.first] = & objectMap->submapObjects(it.first);
+      }
     }
     auto & mesh = submapSurfaceMesh_[it.first];
 
@@ -528,39 +543,85 @@ void Publisher::publishSubmapsAsCallback(std::unordered_map<uint64_t, okvis::kin
     size_t valMeshCnt = 0;
 
     #ifdef OKVIS_COLIDMAP
-    meshMarker.colors.clear();
-    meshMarker.colors.resize(n * mesh.size());
-    for (size_t i = 0; i < mesh.size(); i++) {
-      const Eigen::Vector3f v0_W = (T_OM * (mesh[i].vertexes[0].homogeneous())).template head<3>();
-      const Eigen::Vector3f v1_W = (T_OM * (mesh[i].vertexes[1].homogeneous())).template head<3>();
-      const Eigen::Vector3f v2_W = (T_OM * (mesh[i].vertexes[2].homogeneous())).template head<3>();
-      const float triangle_max_z_W = Eigen::Vector3f(v0_W.z(), v1_W.z(), v2_W.z()).maxCoeff();
-      if (triangle_max_z_W > mesh_cutoff_z_) {
-        continue;
-      }
-
-      meshMarker.points.resize(n * mesh.size());
-      tf::pointEigenToMsg(v0_W.template cast<double>(), meshMarker.points[n * valMeshCnt + 0]);
-      tf::pointEigenToMsg(v1_W.template cast<double>(), meshMarker.points[n * valMeshCnt + 1]);
-      tf::pointEigenToMsg(v2_W.template cast<double>(), meshMarker.points[n * valMeshCnt + 2]);
-      if constexpr(okvis::SupereightMapType::SurfaceMesh::value_type::col_ == se::Colour::On) { // Check for valid colours
-        if(!mesh[i].colour.vertexes) {
+    if(skip_uncolored_){
+      meshMarker.colors.clear();
+      meshMarker.colors.resize(n * mesh.size());
+    }
+    if( publishMode_ == "Colors" ) {
+      for (size_t i = 0; i < mesh.size(); i++) {
+        const Eigen::Vector3f v0_W = (T_OM * (mesh[i].vertexes[0].homogeneous())).template head<3>();
+        const Eigen::Vector3f v1_W = (T_OM * (mesh[i].vertexes[1].homogeneous())).template head<3>();
+        const Eigen::Vector3f v2_W = (T_OM * (mesh[i].vertexes[2].homogeneous())).template head<3>();
+        const float triangle_max_z_W = Eigen::Vector3f(v0_W.z(), v1_W.z(), v2_W.z()).maxCoeff();
+        if (triangle_max_z_W > mesh_cutoff_z_) {
           continue;
         }
-        for(size_t v = 0; v < n; v++) {
-          auto& msg_colour = meshMarker.colors[n * valMeshCnt + v];
-          const auto& mesh_colour = mesh[i].colour.vertexes.value()[v];
-          msg_colour.r = float(mesh_colour.r) / UINT8_MAX;
-          msg_colour.g = float(mesh_colour.g) / UINT8_MAX;
-          msg_colour.b = float(mesh_colour.b) / UINT8_MAX;
-          msg_colour.a = 1.0;
+
+        meshMarker.points.resize(n * mesh.size());
+        tf::pointEigenToMsg(v0_W.template cast<double>(), meshMarker.points[n * valMeshCnt + 0]);
+        tf::pointEigenToMsg(v1_W.template cast<double>(), meshMarker.points[n * valMeshCnt + 1]);
+        tf::pointEigenToMsg(v2_W.template cast<double>(), meshMarker.points[n * valMeshCnt + 2]);
+        if constexpr(okvis::SupereightMapType::SurfaceMesh::value_type::col_ == se::Colour::On) { // Check for valid colours
+          if(!skip_uncolored_){
+            goto skip_color;
+          }
+          if(!mesh[i].colour.vertexes) {
+            continue;
+          }
+          for(size_t v = 0; v < n; v++) {
+            auto& msg_colour = meshMarker.colors[n * valMeshCnt + v];
+            const auto& mesh_colour = mesh[i].colour.vertexes.value()[v];
+            msg_colour.r = float(mesh_colour.r) / UINT8_MAX;
+            msg_colour.g = float(mesh_colour.g) / UINT8_MAX;
+            msg_colour.b = float(mesh_colour.b) / UINT8_MAX;
+            msg_colour.a = 1.0;
+          }
+          skip_color:;
+        }
+        valMeshCnt ++;
+      }
+      if(skip_uncolored_) {
+        meshMarker.points.resize(n * valMeshCnt);
+        meshMarker.colors.resize(n * valMeshCnt);
+      }
+      submapMeshLookup_rgb_[it.first] = meshMarker;
+    }
+    else if ( containsObjects && publishMode_ == "Activations" ) {
+      Descriptor query(text_embedding_vector_.data());
+      auto& submab_objects = objectMap->submapObjects(it.first);
+      // Eigen::Vector3f light_dir_in_K = T_OW.topLeftCorner<3,3>().transpose() * Eigen::Vector3f(0., -1., -1.); 
+      colour_mesh_by_match(mesh, submab_objects, query, tinycolormap::ColormapType::Jet, 0.1, 0.5);
+
+      for (size_t i = 0; i < mesh.size(); i++) {
+        const Eigen::Vector3f v0_W = (T_OM * (mesh[i].vertexes[0].homogeneous())).template head<3>();
+        const Eigen::Vector3f v1_W = (T_OM * (mesh[i].vertexes[1].homogeneous())).template head<3>();
+        const Eigen::Vector3f v2_W = (T_OM * (mesh[i].vertexes[2].homogeneous())).template head<3>();
+        const float triangle_max_z_W = Eigen::Vector3f(v0_W.z(), v1_W.z(), v2_W.z()).maxCoeff();
+        if (triangle_max_z_W > mesh_cutoff_z_) {
+          continue;
+        }
+        for (size_t j = 0; j < n; j++) {
+
+          if(!(mesh[i].id.id == se::g_not_mapped || mesh[i].id.id == se::g_no_id)){
+            meshMarker.points.emplace_back();
+            const Eigen::Vector3f vertex_W = (T_OM * mesh[i].vertexes[j].homogeneous()).template head<3>();
+            meshMarker.points[valMeshCnt].x = vertex_W.x();
+            meshMarker.points[valMeshCnt].y = vertex_W.y();
+            meshMarker.points[valMeshCnt].z = vertex_W.z();
+            std_msgs::msg::ColorRGBA face_color;
+            face_color.a = 1;
+            face_color.r = float(mesh[i].colour.face.value().r) / UINT8_MAX;
+            face_color.g = float(mesh[i].colour.face.value().g) / UINT8_MAX;
+            face_color.b = float(mesh[i].colour.face.value().b) / UINT8_MAX;
+            meshMarker.colors[valMeshCnt] = face_color;
+            valMeshCnt ++;
+          }
         }
       }
-      valMeshCnt ++;
+      meshMarker.points.resize(valMeshCnt);
+      meshMarker.colors.resize(valMeshCnt);
+      submapMeshLookup_embedding_[it.first] = meshMarker;
     }
-    meshMarker.points.resize(n * valMeshCnt);
-    meshMarker.colors.resize(n * valMeshCnt);
-    submapMeshLookup_rgb_[it.first] = meshMarker;
     #else
     for (size_t i = 0; i < mesh.size(); i++) {
       const Eigen::Vector3f v0_W = (T_OM * (mesh[i].vertexes[0].homogeneous())).template head<3>();
@@ -587,18 +648,32 @@ void Publisher::publishSubmapsAsCallback(std::unordered_map<uint64_t, okvis::kin
   // To prevent this, we generate buffers of submaps and send them in smaller packets to bypass this issue
   int submap_publisher_buffer = 0;
 
-  for(auto it: submapMeshLookup_rgb_){
-    it.second.header = header;
-    markerarraymsg_->markers.push_back(it.second);
-    submap_publisher_buffer++;
+  if(publishMode_ == "Colors"){
+    for(auto it: submapMeshLookup_rgb_){
+      it.second.header = header;
+      markerarraymsg_->markers.push_back(it.second);
+      submap_publisher_buffer++;
 
-    if(submap_publisher_buffer == 30){
-      submap_publisher_buffer = 0;
-      pubSubmapMesh_.publish(markerarraymsg_);
-      markerarraymsg_->markers.clear();
+      if(submap_publisher_buffer == 30){
+        submap_publisher_buffer = 0;
+        pubSubmapMesh_.publish(markerarraymsg_);
+        markerarraymsg_->markers.clear();
+      }
     }
   }
-  
+  else if(publishMode_ == "Activations"){
+    for(auto it: submapMeshLookup_embedding_){
+      it.second.header = header;
+      markerarraymsg_->markers.push_back(it.second);
+      submap_publisher_buffer++;
+
+      if(submap_publisher_buffer == 30){
+        submap_publisher_buffer = 0;
+        pubSubmapMesh_.publish(markerarraymsg_);
+        markerarraymsg_->markers.clear();
+      }
+    }
+  }
   
   if(markerarraymsg_->markers.size() > 0) {
       pubSubmapMesh_.publish(markerarraymsg_);
@@ -1374,38 +1449,77 @@ void Publisher::republishMeshes()
     #ifdef OKVIS_COLIDMAP
     meshMarker.colors.clear();
     meshMarker.colors.resize(n * mesh.size());
-    for (size_t i = 0; i < mesh.size(); i++) {
-      const Eigen::Vector3f v0_W = (submapPoses_[cached_mesh.first] * (mesh[i].vertexes[0].homogeneous())).template head<3>();
-      const Eigen::Vector3f v1_W = (submapPoses_[cached_mesh.first] * (mesh[i].vertexes[1].homogeneous())).template head<3>();
-      const Eigen::Vector3f v2_W = (submapPoses_[cached_mesh.first] * (mesh[i].vertexes[2].homogeneous())).template head<3>();
-      const float triangle_max_z_W = Eigen::Vector3f(v0_W.z(), v1_W.z(), v2_W.z()).maxCoeff();
-      if (triangle_max_z_W > mesh_cutoff_z_) {
-        continue;
-      }
-
-      tf::pointEigenToMsg(v0_W.template cast<double>(), meshMarker.points[n * valMeshCnt + 0]);
-      tf::pointEigenToMsg(v1_W.template cast<double>(), meshMarker.points[n * valMeshCnt + 1]);
-      tf::pointEigenToMsg(v2_W.template cast<double>(), meshMarker.points[n * valMeshCnt + 2]);
-    
-      if constexpr(okvis::SupereightMapType::SurfaceMesh::value_type::col_ == se::Colour::On) {
-        // Check for valid colours
-        if(!mesh[i].colour.vertexes) {
+    if(publishMode_ == "Colors")
+    {
+      for (size_t i = 0; i < mesh.size(); i++) {
+        const Eigen::Vector3f v0_W = (submapPoses_[cached_mesh.first] * (mesh[i].vertexes[0].homogeneous())).template head<3>();
+        const Eigen::Vector3f v1_W = (submapPoses_[cached_mesh.first] * (mesh[i].vertexes[1].homogeneous())).template head<3>();
+        const Eigen::Vector3f v2_W = (submapPoses_[cached_mesh.first] * (mesh[i].vertexes[2].homogeneous())).template head<3>();
+        const float triangle_max_z_W = Eigen::Vector3f(v0_W.z(), v1_W.z(), v2_W.z()).maxCoeff();
+        if (triangle_max_z_W > mesh_cutoff_z_) {
           continue;
         }
-        for(size_t v = 0; v < n; v++) {
-          auto& msg_colour = meshMarker.colors[n * valMeshCnt + v];
-          const auto& mesh_colour = mesh[i].colour.vertexes.value()[v];
-          msg_colour.r = float(mesh_colour.r) / UINT8_MAX;
-          msg_colour.g = float(mesh_colour.g) / UINT8_MAX;
-          msg_colour.b = float(mesh_colour.b) / UINT8_MAX;
-          msg_colour.a = 1.0;
+
+        tf::pointEigenToMsg(v0_W.template cast<double>(), meshMarker.points[n * valMeshCnt + 0]);
+        tf::pointEigenToMsg(v1_W.template cast<double>(), meshMarker.points[n * valMeshCnt + 1]);
+        tf::pointEigenToMsg(v2_W.template cast<double>(), meshMarker.points[n * valMeshCnt + 2]);
+      
+        if constexpr(okvis::SupereightMapType::SurfaceMesh::value_type::col_ == se::Colour::On) {
+          // Check for valid colours
+          if(!mesh[i].colour.vertexes) {
+            continue;
+          }
+          for(size_t v = 0; v < n; v++) {
+            auto& msg_colour = meshMarker.colors[n * valMeshCnt + v];
+            const auto& mesh_colour = mesh[i].colour.vertexes.value()[v];
+            msg_colour.r = float(mesh_colour.r) / UINT8_MAX;
+            msg_colour.g = float(mesh_colour.g) / UINT8_MAX;
+            msg_colour.b = float(mesh_colour.b) / UINT8_MAX;
+            msg_colour.a = 1.0;
+          }
+        }
+        valMeshCnt ++;
+      }
+      meshMarker.points.resize(n * valMeshCnt);
+      meshMarker.colors.resize(n * valMeshCnt);
+      submapMeshLookup_rgb_[cached_mesh.first] = meshMarker;
+    }
+    else if(publishMode_ == "Activations")
+    {
+      Descriptor query(text_embedding_vector_.data());
+      auto& submab_objects = submapObjects_[cached_mesh.first];
+      // Eigen::Vector3f light_dir_in_K = T_OW.topLeftCorner<3,3>().transpose() * Eigen::Vector3f(0., -1., -1.); 
+      colour_mesh_by_match(mesh, *submab_objects, query, tinycolormap::ColormapType::Jet, 0.1, 0.5);
+
+      for (size_t i = 0; i < mesh.size(); i++) {
+        const Eigen::Vector3f v0_W = (submapPoses_[cached_mesh.first] * (mesh[i].vertexes[0].homogeneous())).template head<3>();
+        const Eigen::Vector3f v1_W = (submapPoses_[cached_mesh.first] * (mesh[i].vertexes[1].homogeneous())).template head<3>();
+        const Eigen::Vector3f v2_W = (submapPoses_[cached_mesh.first] * (mesh[i].vertexes[2].homogeneous())).template head<3>();
+        const float triangle_max_z_W = Eigen::Vector3f(v0_W.z(), v1_W.z(), v2_W.z()).maxCoeff();
+        if (triangle_max_z_W > mesh_cutoff_z_) {
+          continue;
+        }
+        for (size_t j = 0; j < n; j++) {
+          if(!(mesh[i].id.id == se::g_not_mapped || mesh[i].id.id == se::g_no_id)){
+            meshMarker.points.emplace_back();
+            const Eigen::Vector3f vertex_W = (submapPoses_[cached_mesh.first] * mesh[i].vertexes[j].homogeneous()).template head<3>();
+            meshMarker.points[valMeshCnt].x = vertex_W.x();
+            meshMarker.points[valMeshCnt].y = vertex_W.y();
+            meshMarker.points[valMeshCnt].z = vertex_W.z();
+            std_msgs::msg::ColorRGBA face_color;
+            face_color.a = 1;
+            face_color.r = float(mesh[i].colour.face.value().r) / UINT8_MAX;
+            face_color.g = float(mesh[i].colour.face.value().g) / UINT8_MAX;
+            face_color.b = float(mesh[i].colour.face.value().b) / UINT8_MAX;
+            meshMarker.colors[valMeshCnt] = face_color;
+            valMeshCnt ++;
+          }
         }
       }
-      valMeshCnt ++;
+      meshMarker.points.resize(valMeshCnt);
+      meshMarker.colors.resize(valMeshCnt);
+      submapMeshLookup_embedding_[cached_mesh.first] = meshMarker;
     }
-    meshMarker.points.resize(n * valMeshCnt);
-    meshMarker.colors.resize(n * valMeshCnt);
-    submapMeshLookup_rgb_[cached_mesh.first] = meshMarker;
     #else
     for (size_t i = 0; i < mesh.size(); i++) {
       const Eigen::Vector3f v0_W = (submapPoses_[cached_mesh.first] * (mesh[i].vertexes[0].homogeneous())).template head<3>();
@@ -1431,15 +1545,30 @@ void Publisher::republishMeshes()
   //If too many submaps are to be updated at once (> 1GB) ROS considers it has gone out of sync and does not update.
   // To prevent this, we generate buffers of submaps and send them in smaller packets to bypass this issue
   int submap_publisher_buffer = 0;
-  for(auto it: submapMeshLookup_rgb_){
-    it.second.header = header;
-    markerarraymsg_->markers.push_back(it.second);
-    submap_publisher_buffer++;
+  if(publishMode_ == "Colors"){
+    for(auto it: submapMeshLookup_rgb_){
+      it.second.header = header;
+      markerarraymsg_->markers.push_back(it.second);
+      submap_publisher_buffer++;
 
-    if(submap_publisher_buffer == 30){
-      submap_publisher_buffer = 0;
-      pubSubmapMesh_.publish(markerarraymsg_);
-      markerarraymsg_->markers.clear();
+      if(submap_publisher_buffer == 30){
+        submap_publisher_buffer = 0;
+        pubSubmapMesh_.publish(markerarraymsg_);
+        markerarraymsg_->markers.clear();
+      }
+    }
+  }
+  else if(publishMode_ == "Activations"){
+    for(auto it: submapMeshLookup_embedding_){
+      it.second.header = header;
+      markerarraymsg_->markers.push_back(it.second);
+      submap_publisher_buffer++;
+
+      if(submap_publisher_buffer == 30){
+        submap_publisher_buffer = 0;
+        pubSubmapMesh_.publish(markerarraymsg_);
+        markerarraymsg_->markers.clear();
+      }
     }
   }
   
@@ -1447,6 +1576,16 @@ void Publisher::republishMeshes()
       pubSubmapMesh_.publish(markerarraymsg_);
   }
 
+  return;
+}
+
+void Publisher::setMeshPublishingMode(const std::string &publishMode) {
+  if(! (publishMode == "Colors" || publishMode == "Activations")){
+    LOG(ERROR) << "Unknown MeshPublishing Mode given: " << publishMode << " - Setting to Colors.";
+    return;
+  }
+  LOG(INFO) << "Set MeshPublishing Mode to " << publishMode;
+  publishMode_ = publishMode;
   return;
 }
 

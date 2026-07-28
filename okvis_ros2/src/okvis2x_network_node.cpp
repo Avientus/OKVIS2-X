@@ -47,8 +47,11 @@
   #if defined(OKVIS_DFUSION_NETWORK_PROCESSOR)
     #include <okvis/DepthFusionProcessor.hpp>
   #endif
+#elif defined(OKVIS_LANGUAGE_NETWORK_PROCESSOR)
+  #include <okvis/VisionLanguageProcessor.hpp>
+  #include <language_feature_msgs/msg/tensor.hpp>
 #else
-  #error "One of (OKVIS_STEREO_NETWORK_PROCESSOR || OKVIS_DFUSION_NETWORK_PROCESSOR) must be defined"
+  #error "One of (OKVIS_STEREO_NETWORK_PROCESSOR || OKVIS_DFUSION_NETWORK_PROCESSOR) / OKVIS_LANGUAGE_NETWORK_PROCESSOR must be defined"
 #endif
 
 #include <std_srvs/srv/set_bool.hpp>
@@ -148,6 +151,8 @@ int main(int argc, char **argv) {
     dlProcessor = new okvis::Stereo2DepthProcessor(parameters, dBowVocDir);
   #elif defined(OKVIS_DFUSION_NETWORK_PROCESSOR)
     dlProcessor = new okvis::DepthFusionProcessor(parameters, dBowVocDir);
+  #elif defined(OKVIS_LANGUAGE_NETWORK_PROCESSOR)
+    dlProcessor = new okvis::VLProcessor(parameters, dBowVocDir);
   #endif
   
   okvis::Processor processor(
@@ -223,7 +228,9 @@ int main(int argc, char **argv) {
     #endif
   #else
     // subscriber
-    #if defined(OKVIS_STEREO_NETWORK_PROCESSOR) || defined(OKVIS_DFUSION_NETWORK_PROCESSOR)
+    #if defined(OKVIS_LANGUAGE_NETWORK_PROCESSOR)
+        std::shared_ptr<okvis::Subscriber> subscriber(new okvis::Subscriber(node, &processor, &publisher, parameters, &processor.se_interface_, true, false));
+    #elif defined(OKVIS_STEREO_NETWORK_PROCESSOR) || defined(OKVIS_DFUSION_NETWORK_PROCESSOR)
         std::shared_ptr<okvis::Subscriber> subscriber(new okvis::Subscriber(node, &processor, &publisher, parameters, &processor.se_interface_, false, false));
     #endif
   #endif
@@ -268,6 +275,10 @@ int main(int argc, char **argv) {
     }
     std::string depthTopic = "";
 
+    #ifdef OKVIS_LANGUAGE_NETWORK_PROCESSOR
+      depthTopic = "depth";
+    #endif
+
     LOG(INFO) << "Depth topic is " << depthTopic;
     if(use_rgb) {
       rePublisher.setTopics("imu0", "cam", "rgb", depthTopic);
@@ -290,7 +301,7 @@ int main(int argc, char **argv) {
   processor.setSubmapCallback(std::bind(
     &okvis::Publisher::publishSubmapsAsCallback, 
     &publisher, 
-    std::placeholders::_1, std::placeholders::_2)
+    std::placeholders::_1, std::placeholders::_2, std::placeholders::_3)
   );
 
   // Set occupancy grid callback
@@ -321,6 +332,27 @@ int main(int argc, char **argv) {
   );
   processor.se_interface_.setOdometryPublishingRate(imu_propagated_state_publishing_rate);
   LOG(INFO) << "Realtime odometry publishing callback registered with rate: " << imu_propagated_state_publishing_rate << " Hz";
+  // Setup Language Query Node (if needed)
+  #ifdef OKVIS_LANGUAGE_NETWORK_PROCESSOR
+      // Also set up query node
+      rclcpp::Subscription<language_feature_msgs::msg::Tensor>::SharedPtr subLanuageEmbedding = 
+            node->create_subscription<language_feature_msgs::msg::Tensor>("/language_processor/embedding", 1,
+                          [&](language_feature_msgs::msg::Tensor::SharedPtr msg){
+                              LOG(ERROR) << "Received Text Query: " << msg->query.c_str();
+                              // now convert float32[] vector to Tensor
+                              Descriptor embedding_vector;
+                              for(int i = 0; i < Descriptor::SizeAtCompileTime; i++){
+                                embedding_vector[i] = static_cast<float> ((*msg).tensor.at(i));
+                              }
+                            static_cast<okvis::VLProcessor*> (dlProcessor)->setLanguageEmbedding(embedding_vector);
+                            publisher.setTextEmbeddingVector(embedding_vector);
+                            publisher.setMeshPublishingMode((*msg).display_mode);
+                            
+                            // Re-Color Previous Meshes
+                            publisher.republishMeshes();
+                            processor.se_interface_.setLanguageEmbedding(embedding_vector);
+                          });
+  #endif
 
   // require a special termination handler to properly close
   shtdown = false;

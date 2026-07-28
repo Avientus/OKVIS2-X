@@ -134,6 +134,7 @@ namespace timing {
     static  void print(std::ostream & out);
     static  void reset(size_t handle);
     static  void reset(std::string const & tag);
+    static  void resetAll();
     static  std::string print();
     static  std::string secondsToTimeString(double seconds);
     

@@ -285,10 +285,10 @@ class Trajectory {
   ///        trivial operation. Returns false, if no states/IMU measurements available for
   ///        the desired timestamp.
   /// @param[in] timestamps The requested timestamps.
-  /// @param[out] states The respective states.
+  /// @param[out] statePoses The respective states' poses.
   /// \return True on success.
-  bool getStates(const std::vector<Time> & timestamps,
-                 std::vector<State>& states);
+  bool getStatePoses(const std::vector<Time> & timestamps,
+                 std::vector<Eigen::Matrix4d, Eigen::aligned_allocator<Eigen::Matrix4d>>& statePoses);
 
   /// \brief Get the state at an actually estimated state instance.
   /// @param[in] stateId The requested state ID.

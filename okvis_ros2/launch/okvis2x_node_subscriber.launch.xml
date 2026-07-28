@@ -8,6 +8,7 @@
     <arg name="depth_image" default="false"/>
     <arg name="stereo_network" default="false"/>
     <arg name="depth_fusion" default="false"/>
+    <arg name="vision_language" default="false"/>
     <arg name="csv_path" default="/tmp/"/>
     <arg name="mesh_cutoff_z" default="2.5"/>
     <arg name="save_submap_meshes" default="false"/>
@@ -138,6 +139,28 @@
         <remap from="/okvis/depth0/image_raw" to="/rmf_owl/depth0/depth_image"/>
         <remap from="/okvis/cam2/image_raw" to="/rmf_owl/rgb1/image_raw"/>
         <remap from="/okvis/imu0" to="/rmf_owl/okvis_imu0"/> -->
+    </node>
+
+    <node pkg="okvis" exec="okvis2x_language_network_node_subscriber" name="okvis" namespace="okvis" if="$(var vision_language)">
+        <!-- Set the State publishing rate to value > 0.0 if state publishing needed -->
+        <!--param name="imu_propagated_state_publishing_rate" type="float" value="40.0"/-->
+        <param name="config_filename" value="$(var config_filename)"/>
+        <param name="se_config_filename" value="$(var se_config_filename)"/>
+        <param name="csv_path" value="$(var csv_path)"/>
+        <param name="mesh_cutoff_z" type="float" value="$(var mesh_cutoff_z)"/>
+        <param name="save_submap_meshes" value="$(var save_submap_meshes)"/>
+        <param name="mesh_file" value="file://$(find-pkg-share okvis)/resources/meshes/$(var mesh)"/>
+        <!-- Change the topic whatever you want in to="topic" -->
+        <!-- Simulator -->
+        <remap from="/okvis/cam0/image_raw" to="/rmf_owl/cam0/image_raw"/>
+        <remap from="/okvis/cam1/image_raw" to="/rmf_owl/cam1/image_raw"/>
+        <remap from="/okvis/depth0/image_raw" to="/rmf_owl/depth0/depth_image"/>
+        <remap from="/okvis/cam2/image_raw" to="/rmf_owl/rgb1/image_raw"/>
+        <remap from="/okvis/imu0" to="/rmf_owl/okvis_imu0"/>
+
+    </node>
+
+    <node pkg="language_feature_node" exec="query_to_tensor" name="language_feature_node" if="$(var vision_language)">
     </node>
 
     <node pkg="rviz2" exec="rviz2" name="rviz2" namespace="okvis" args="-d $(find-pkg-share okvis)/config/rviz2/rviz2_okvis2x_config.rviz" if="$(var rviz)"/>

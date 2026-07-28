@@ -647,12 +647,23 @@ namespace okvis {
                    [](const auto& face){
                      return face.colour.vertexes.has_value();
                     });
+      se::id::colour_mesh_by_id(filtered_mesh);
       if(filtered_mesh.size() > 0) {
         se::io::save_mesh(filtered_mesh, meshFilename, Eigen::Isometry3f(submapPose.T().cast<float>()));
       }
       else {
         se::io::save_mesh(mesh, meshFilename, Eigen::Isometry3f(submapPose.T().cast<float>()));
       }
+      if(objectMap_->numberOfObjects() == 0){
+        return;
+      }
+      auto& submap_objects = objectMap_->submapObjects(kfId);
+
+      if(submap_objects.size() > 0) {
+          colour_mesh_by_match(filtered_mesh, submap_objects, languageDescriptor_.normalized(), tinycolormap::ColormapType::Jet, 0.1, 0.5);
+          const std::string activationMeshFilename = meshesPath_ + "/activationMesh_kf" + mesh_numbering + ".ply";
+          se::io::save_mesh(filtered_mesh, activationMeshFilename, Eigen::Isometry3f(submapPose.T().cast<float>()));
+      }  
       #else
       se::io::save_mesh(mesh, meshFilename, Eigen::Isometry3f(submapPose.T().cast<float>()));   
       #endif
@@ -774,15 +785,13 @@ namespace okvis {
           if(lidarSensors_ && supereightFrame.vecRayMeasurements.size() > 0 && supereightFrames_.Size() <= 1){
             // Here prevKeyframeId_ will always be the current active submap
             okvis::kinematics::Transformation T_WK(seSubmapLookup_[prevKeyframeId_].T_WK.matrix().cast<double>());
-            RayVector vecRayMeasurementsToIntegrate;
-
-            updateLidarAlignBlock(supereightFrame.vecRayMeasurements, T_WK, vecRayMeasurementsToIntegrate);
-
+            TimerSwitchable prepareInput("9.2.0 SE2 LiDAR prepare input");
+            updateLidarAlignBlock(supereightFrame.vecRayMeasurements, T_WK);
+            prepareInput.stop();
             // Now we transform the measurements into the map frame for integration
             if(integrationPublishCallback_) integrationPublishCallback_(supereightFrame.vecRayMeasurements);
-
             TimerSwitchable actualIntegrationTimer("9.2.1 Actual lidar integration");
-            integrator.integrateRayBatch(integration_counter_, vecRayMeasurementsToIntegrate, (*lidarSensors_).second);
+            integrator.integrateRayBatch(integration_counter_, supereightFrame.vecRayMeasurements, (*lidarSensors_).second);
             actualIntegrationTimer.stop();
             numIntegratedLidarFrames_++;
             integration_counter_++;
@@ -864,6 +873,7 @@ namespace okvis {
                     }
                   }
 
+
                   TimerSwitchable diWarp("8.5.2 -- warping");
                   // Register depth
                   cv::Mat warped_depth(depthData.second.measurement.depthImage.size(),
@@ -875,17 +885,89 @@ namespace okvis {
                   }
                   diWarp.stop();
 
-                  integrator.integrateDepth(
-                      integration_counter_,
-                      se::Measurements{se::Measurement{
-                                          depthMat2Image(depthData.second.measurement.depthImage),
-                                          (*cameraSensors_).at(depthImage_idx).second,
-                                          Eigen::Isometry3f(T_WK.inverse().T().cast<float>() * depthData.first.matrix())},
-                                        se::Measurement<se::PinholeCamera, se::colour_t>{
-                                          rgbMat2Image(rgbData.second.measurement.image),
-                                          (*cameraSensors_).at(colourImage_idx).second,
-                                          Eigen::Isometry3f(T_WK.inverse().T().cast<float>() * rgbData.first.matrix())}
-                                        });
+                  if(rgbData.second.measurement.deep_learning_data.find("language_features") != rgbData.second.measurement.deep_learning_data.end() &&
+                     rgbData.second.measurement.deep_learning_data.find("sam_masks") != rgbData.second.measurement.deep_learning_data.end()){
+
+                    #ifdef OKVIS_COLIDMAP
+
+                    TimerSwitchable diLookup("8.5.3 -- segment lookup");
+                    se::Image<se::id_t> surface_segment_id = se::raycaster::lookup_ids(activeMap,
+                            depthMat2Image(warped_depth),
+                            (*cameraSensors_).at(depthImage_idx).second,
+                            Eigen::Isometry3f(T_WK.inverse().T().cast<float>() * rgbData.first.matrix()));
+                    diLookup.stop();
+
+                    // Get masks of invalid depth regions
+                    TimerSwitchable diInvalid("8.5.4 -- invalid mask");
+                    cv::Mat invalid_depth_mask(depthData.second.measurement.depthImage.rows,
+                                              depthData.second.measurement.depthImage.cols,
+                                              CV_8UC1, cv::Scalar(0));
+                    invalid_depth_mask.setTo(cv::Scalar(1), warped_depth < (*cameraSensors_).at(depthImage_idx).second.near_plane);
+                    invalid_depth_mask.setTo(cv::Scalar(1), warped_depth > (*cameraSensors_).at(depthImage_idx).second.far_plane);
+                    diInvalid.stop();
+
+                    // Do Matching of segments in current image and active Submap
+                    TimerSwitchable diUnique("8.5.5 -- unique segments");
+                    cv::Mat unique_segments = objectMap_->processData(prevKeyframeId_,
+                                                                    invalid_depth_mask,
+                                                                    rgbData.second.measurement.deep_learning_data["sam_masks"],
+                                                                    rgbData.second.measurement.deep_learning_data["language_features"],
+                                                                    surface_segment_id);
+                    se::Image<se::id_t> unique_segments_as_se_image(unique_segments.cols, unique_segments.rows, reinterpret_cast<se::id_t*>(unique_segments.data));
+                    diUnique.stop();
+
+
+                    TimerSwitchable diIntegrate("8.5.5 -- actual integration");
+                    // Now Integrate Depth, Color, as well as Segments
+                    integrator.integrateDepth(
+                        integration_counter_,
+                        se::Measurements{se::Measurement{
+                                            depthMat2Image(depthData.second.measurement.depthImage),
+                                            (*cameraSensors_).at(depthImage_idx).second,
+                                            Eigen::Isometry3f(T_WK.inverse().T().cast<float>() * depthData.first.matrix())},
+                                          se::Measurement<se::PinholeCamera, se::colour_t>{
+                                            rgbMat2Image(rgbData.second.measurement.image),
+                                            (*cameraSensors_).at(colourImage_idx).second,
+                                            Eigen::Isometry3f(T_WK.inverse().T().cast<float>() * rgbData.first.matrix())},
+                                          se::Measurement{unique_segments_as_se_image, (*cameraSensors_).at(colourImage_idx).second,
+                                            Eigen::Isometry3f(T_WK.inverse().T().cast<float>() * rgbData.first.matrix())}
+                                          });
+                    #else
+                      static bool dbg_message = true;
+                      if(dbg_message) {
+                        dbg_message = false;
+                        LOG(ERROR) << "Detected SAM and Language features but the map does not support it, doing normal integration." \
+                         "Please check the CMakeLists.txt OKVIS_COLIDMAP option in case this is not the desired usage";
+                      }
+                      TimerSwitchable diIntegrate("8.5.5 -- actual integration");
+                      integrator.integrateDepth(
+                          integration_counter_,
+                          se::Measurements{se::Measurement{
+                                              depthMat2Image(depthData.second.measurement.depthImage),
+                                              (*cameraSensors_).at(depthImage_idx).second,
+                                              Eigen::Isometry3f(T_WK.inverse().T().cast<float>() * depthData.first.matrix())},
+                                            se::Measurement<se::PinholeCamera, se::colour_t>{
+                                              rgbMat2Image(rgbData.second.measurement.image),
+                                              (*cameraSensors_).at(colourImage_idx).second,
+                                              Eigen::Isometry3f(T_WK.inverse().T().cast<float>() * rgbData.first.matrix())}
+                                            });
+                    #endif
+                    diIntegrate.stop();
+
+
+                  } else {
+                    integrator.integrateDepth(
+                        integration_counter_,
+                        se::Measurements{se::Measurement{
+                                            depthMat2Image(depthData.second.measurement.depthImage),
+                                            (*cameraSensors_).at(depthImage_idx).second,
+                                            Eigen::Isometry3f(T_WK.inverse().T().cast<float>() * depthData.first.matrix())},
+                                          se::Measurement<se::PinholeCamera, se::colour_t>{
+                                            rgbMat2Image(rgbData.second.measurement.image),
+                                            (*cameraSensors_).at(colourImage_idx).second,
+                                            Eigen::Isometry3f(T_WK.inverse().T().cast<float>() * rgbData.first.matrix())}
+                                          });
+                  }
                   integration_counter_++;
                   numIntegratedDepthFrames_++;
                 }
@@ -932,6 +1014,9 @@ namespace okvis {
             occupancyGridCallback_(current_state, seSubmapLookup_);
           } else {
             LOG(WARNING) << "Occupancy grid callback is NOT SET!";
+          {
+            std::lock_guard _(language_embedding_mtx);
+            Descriptor ldesc = languageDescriptor_.normalized();
           }
         
           if(create_new_submap && previousSubmapId_ != UNINITIALIZED_ID){
@@ -943,6 +1028,9 @@ namespace okvis {
             if(previousSubmapId_ != UNINITIALIZED_ID){
               // ToDo: mesh in asynchronous thread, not to block processing
               seMeshLookup_[previousSubmapId_] = seSubmapLookup_[previousSubmapId_].map->mesh();
+
+              // Finish Objects for completed submap, means coloring of mesh for text query and extracting poses
+              objectMap_->finishSubmapObjects(previousSubmapId_);
             }
 
 
@@ -990,8 +1078,13 @@ namespace okvis {
     void SubmappingInterface::saveAllSubmapMeshes(){
       LOG(INFO) << "There are " << seSubmapLookup_.size() << " submaps to save";
       for(auto it = seSubmapLookup_.begin(); it != seSubmapLookup_.end(); ++it){
-        saveSubmap(it->first);        
+        saveSubmap(it->first);
+        if(!objectMap_->saveObjects(it->first, meshesPath_, it->second.T_WK)) {
+          LOG(WARNING) << "Could not save object level data for map " << it->first;
+        }
+        
       }
+      LOG(INFO) << "A total number of " << objectMap_->numberOfObjects() << " exists across all submaps";
     }
 
     DepthFrame SubmappingInterface::depthMat2Image(const cv::Mat &inputDepth) {
@@ -1159,7 +1252,7 @@ namespace okvis {
       depthMeasurements_.getCopyOfFront(&depthMeasurement);
 
       // Motion de-skewed LiDAR Measurements
-      std::vector<okvis::State> states;
+      std::vector<Eigen::Matrix4d, Eigen::aligned_allocator<Eigen::Matrix4d>> statePoses;
       std::vector<okvis::Time> times;
       std::vector<okvis::LidarMeasurement, Eigen::aligned_allocator<okvis::LidarMeasurement>> measurements;
 
@@ -1230,6 +1323,13 @@ namespace okvis {
                 }
               }
 
+              // Also for color/gray images.
+              if(depthImageResDownsamplingRatio_ > 1 && !measurement.measurement.image.empty()) {
+                cv::Mat imageSubsampled;
+                cv::resize(measurement.measurement.image, imageSubsampled, cv::Size(), 1.0 / depthImageResDownsamplingRatio_, 1.0 / depthImageResDownsamplingRatio_, cv::INTER_NEAREST);
+                measurement.measurement.image = imageSubsampled;
+              }
+
               posed_cam_idx_measurements.emplace_back(std::make_pair(Eigen::Isometry3f(T_WD.T().cast<float>()), measurement));
             }
 
@@ -1263,12 +1363,13 @@ namespace okvis {
         if(!keepLoopingDepth && !keepLoopingLidar ) {
           keepLooping = false;
           if(integrateLidar){
-            states.reserve(times.size());
+            statePoses.reserve(times.size());
             // ToDo: Potentially thread-un-safe?!?!
-            bool getStatesSuccessfully = propagatedStates.getStates(times, states);
+            bool getStatesSuccessfully = propagatedStates.getStatePoses(times, statePoses);
             if(getStatesSuccessfully){
+              frame_->vecRayMeasurements.reserve(times.size());
               for(size_t i = 0; i < times.size(); i++){
-                Eigen::Matrix4f T_WL = states[i].T_WS.T().cast<float>() * (*viParameters_.lidar).T_SL.T().cast<float>();
+                Eigen::Matrix4f T_WL = statePoses[i].cast<float>() * (*viParameters_.lidar).T_SL.T().cast<float>();
                 if(!frame_){
                   throw std::runtime_error("About to add lidar measurements and we have found a point where there is no frame initialized where there should have be");
                 }else{
@@ -1362,7 +1463,7 @@ namespace okvis {
       DLOG(INFO) << "publishing submaps";
 
       if (submapCallback_) {
-        submapCallback_(submapPoses, submaps);
+        submapCallback_(submapPoses, submaps, objectMap_);
       }
     }
     
@@ -1474,6 +1575,7 @@ namespace okvis {
     }
 
     okvis::kinematics::Transformation T_WM(seSubmapLookup_[mapId].T_WK.matrix().cast<double>());
+    Eigen::Isometry3f T_MW_iso(T_WM.inverse().T().cast<float>());
 
     for(size_t i = 0; i < number_of_measurements; i++) {
         if((seFrame.vecRayMeasurements[i].second.norm() > lidarSensors_->second.far_plane) || (seFrame.vecRayMeasurements[i].second.norm() < lidarSensors_->second.near_plane)){
@@ -1481,7 +1583,7 @@ namespace okvis {
             continue;
         }
         // Transform se frame measurement into submap: T_WM.inverse() * T_WD * ray == world_to_submap*depth_to_submap * measurement_in_depth_sensor_frame
-        Eigen::Vector3f pt = T_WM.inverse().T3x4().cast<float>() * seFrame.vecRayMeasurements[i].first * seFrame.vecRayMeasurements[i].second.homogeneous();
+        Eigen::Vector3f pt = T_MW_iso * seFrame.vecRayMeasurements[i].first * seFrame.vecRayMeasurements[i].second;
         std::optional<float> occ = map.interpField<se::Safe::On>(pt);
         if (occ){
             observed_counter++;
@@ -1575,14 +1677,15 @@ namespace okvis {
     size_t number_of_measurements = points.size();
     okvis::kinematics::Transformation T_WM_A(seSubmapLookup_[mapIdA].T_WK.matrix().cast<double>());
     okvis::kinematics::Transformation T_WM_B(seSubmapLookup_[mapIdB].T_WK.matrix().cast<double>());
+    Eigen::Isometry3f T_MA_MB((T_WM_A.inverse().T() * T_WM_B.T()).cast<float>());
 
     for(size_t i = 0; i < number_of_measurements; i++) {
 
       // Transform from submap B to submap A
-      Eigen::Vector3f pt_A = T_WM_A.inverse().T3x4().cast<float>() * T_WM_B.T().cast<float>() * points.at(i).homogeneous();
+      Eigen::Vector3f pt_A = T_MA_MB * points[i];
       std::optional<float> occ = seSubmapLookup_[mapIdA].map->interpField<se::Safe::On>(pt_A);
       if (occ){
-        observedPoints.push_back(points.at(i));
+        observedPoints.push_back(points[i]);
         observed_counter++;
       }
     }
@@ -1599,17 +1702,18 @@ namespace okvis {
     const float occ_margin = 0.8*dataConfig_.field.log_odd_max;
     okvis::kinematics::Transformation T_WM_A(seSubmapLookup_[mapIdA].T_WK.matrix().cast<double>());
     okvis::kinematics::Transformation T_WM_B(seSubmapLookup_[mapIdB].T_WK.matrix().cast<double>());
+    Eigen::Isometry3f T_MA_MB((T_WM_A.inverse().T() * T_WM_B.T()).cast<float>());
 
     for(size_t i = 0; i < number_of_measurements; i++) {
 
       // Transform from submap B to submap A
-      Eigen::Vector3f pt_A = T_WM_A.inverse().T3x4().cast<float>() * T_WM_B.T().cast<float>() * points.at(i).homogeneous();
+      Eigen::Vector3f pt_A = T_MA_MB * points[i];
       std::optional<float> occ = okvis::interpFieldMeanOccup<se::Safe::On>(*(seSubmapLookup_[mapIdA].map), pt_A);
       std::optional<Eigen::Vector3f> gradf = okvis::gradFieldMeanOccup<se::Safe::On>(*(seSubmapLookup_[mapIdA].map), pt_A);
       if (occ && gradf){
         if (occ.value() > -occ_margin && occ.value() < occ_margin && gradf.value().norm() >= 1e-03) {
-          observedPoints.push_back(points.at(i));
-          observedSigma.push_back(sigma.at(i));
+          observedPoints.push_back(points[i]);
+          observedSigma.push_back(sigma[i]);
           observed_counter++;
         }
       }
@@ -1915,37 +2019,44 @@ namespace okvis {
   }
 
 
-  void SubmappingInterface::updateLidarAlignBlock(const RayVector& vecRayMeasurements,
-    const kinematics::Transformation& T_WK, RayVector& vecRayMeasurementsToIntegrate) {
-
-    size_t numRays = vecRayMeasurements.size();
-
+  void SubmappingInterface::updateLidarAlignBlock(RayVector& vecRayMeasurements,
+                                                  const kinematics::Transformation& T_WK) {
     // Measurements in SE Frame are pairs of T_WL (lidar in world frame), r_L (ray in lidar frame)
     // for integration as well as for map-to-map factors, points have to be relative to the submap frame
-    vecRayMeasurementsToIntegrate.resize(numRays);
-
-    // Only Rays have to be kept for submap alignment
     std::vector<Eigen::Vector3d, Eigen::aligned_allocator<Eigen::Vector3d>> onlyRays;
-    if(submapConfig_.useMap2MapFactors){
-      onlyRays.reserve(numRays);
+    if(submapConfig_.useMap2MapFactors) {
+      onlyRays.reserve(vecRayMeasurements.size());
     }
 
-    // Now go through measurements and transform from LiDAR frame into submap frame
-    for(size_t i = 0; i < numRays; i++){
-      // LiDAR-to-submap transformation 
-      Eigen::Isometry3f T_KL(Eigen::Isometry3f(T_WK.inverse().T().cast<float>()) * vecRayMeasurements[i].first.cast<float>());
-      vecRayMeasurementsToIntegrate[i] = 
-              std::pair<Eigen::Isometry3f, Eigen::Vector3f> (T_KL, vecRayMeasurements[i].second.cast<float>());
-      if(submapConfig_.useMap2MapFactors){
-        onlyRays.push_back(T_KL.cast<double>() * vecRayMeasurements[i].second.cast<double>());
+
+    std::unordered_set<Voxel, VoxelHash> allocatedVoxels; // ToDo: Aligned Allocator needed here?
+    allocatedVoxels.reserve(vecRayMeasurements.size());
+    size_t write_idx=0;
+    Eigen::Isometry3f T_KW(T_WK.inverse().T().cast<float>());
+    Eigen::Isometry3f T_KL;
+    Eigen::Vector3f point_K;
+
+    for(const auto &rayMeasurement : vecRayMeasurements){
+      // This seems to assume a world-aligned (0-based) voxel grid
+      T_KL = T_KW * rayMeasurement.first;
+      point_K = T_KL * rayMeasurement.second;
+
+      const auto voxel = Voxel((point_K / (mapConfig_.res / 2.0f)).cast<int>());
+      if(allocatedVoxels.insert(voxel).second){
+        vecRayMeasurements[write_idx++] = std::pair<Eigen::Isometry3f, Eigen::Vector3f>(T_KL, rayMeasurement.second);
+        if(submapConfig_.useMap2MapFactors){
+          onlyRays.push_back(point_K.cast<double>());
+        }
       }
-    }
+    } 
+
+    vecRayMeasurements.resize(write_idx);
 
     // If points used for submap alignment add them to the hash map
     size_t n_points = onlyRays.size();
     if(n_points > 0){
       submapAlignBlock_.voxelHashMap.AddPoints(onlyRays);
-      }
+    }
   }
 
 }

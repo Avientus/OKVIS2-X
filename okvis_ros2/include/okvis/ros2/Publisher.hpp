@@ -53,8 +53,8 @@
 #include <okvis/Parameters.hpp>
 #include <okvis/FrameTypedefs.hpp>
 #include <okvis/Time.hpp>
+#include <okvis/ObjectMapping.hpp>
 #include <okvis/TrajectoryOutput.hpp>
-#include <okvis/mapTypedefs.hpp>
 
 #include <se/external/tinycolormap.hpp>
 
@@ -164,7 +164,8 @@ class Publisher
    * @brief Submap mesh callback
    */
   void publishSubmapsAsCallback(std::unordered_map<uint64_t, okvis::kinematics::Transformation, std::hash<uint64_t>, std::equal_to<uint64_t>, Eigen::aligned_allocator<std::pair<const uint64_t, okvis::kinematics::Transformation>>> submapPoseLookup, 
-                                std::unordered_map<uint64_t, std::shared_ptr<okvis::SupereightMapType>> submapLookup);
+                                std::unordered_map<uint64_t, std::shared_ptr<okvis::SupereightMapType>> submapLookup,
+                                std::shared_ptr<okvis::ObjectMap> objectMap);
 
   /**
    * @brief Publish a horizontal slice through the occupancy field
@@ -218,6 +219,16 @@ class Publisher
   void publishAlignmentPointsAsCallback(const okvis::Time& timestamp, const okvis::kinematics::Transformation& T_WS,
                                         const std::vector<Eigen::Vector3f, Eigen::aligned_allocator<Eigen::Vector3f>>& alignPointCloud,
                                         bool isMapFrame=false);
+
+  /**
+   * @brief Set query (embedding) for VL queries
+   */
+  void setTextEmbeddingVector(const Descriptor& text_embedding_vector){text_embedding_vector_ = text_embedding_vector;}
+
+  /**
+   * @brief Set Mesh Publishing Mode (Colors or Activations)
+   */
+  void setMeshPublishingMode(const std::string& publishMode);
 
   /**
    * @brief Re-Publish meshes (if publishing mode has changed)
@@ -301,7 +312,9 @@ class Publisher
   // Submap-related members.
   std::unordered_map<uint64_t, visualization_msgs::msg::Marker> submapMeshLookup_; ///< Lookup for submap meshes.
   std::unordered_map<uint64_t, okvis::SupereightMapType::SurfaceMesh> submapSurfaceMesh_; ///< Surface meshes for submaps.
+  std::unordered_map<uint64_t, visualization_msgs::msg::Marker> submapMeshLookup_embedding_; ///< Lookup for submap embedding meshes.
   std::unordered_map<uint64_t, visualization_msgs::msg::Marker> submapMeshLookup_rgb_; ///< Lookup for submap RGB meshes.
+  std::map<uint64_t, const okvis::AlignedMap<se::id_t, SubmapObject>*> submapObjects_; ///< Objects in submaps.
   std::map<uint64_t, Eigen::Matrix4f> submapPoses_; ///< Poses of submaps.
   
   // Accumulated occupancy grid storage (similar to mesh storage)
@@ -371,6 +384,11 @@ class Publisher
                                      float grid_resolution,
                                      float robot_height_z,
                                      std::vector<int8_t>& global_grid);
+  std::atomic_bool skip_uncolored_ = true; ///< Flag if uncolored vertices should be skipped at mesh publishing
+
+  // Vision-Language Query Related Members
+  Descriptor text_embedding_vector_; ///< Text embedding vector.
+  std::string publishMode_ = "Colors"; ///< Mode which meshes are published: RGB ("Colors") | Text Query ("Activations")
 
   float mesh_cutoff_z_ = std::numeric_limits<float>::max(); ///< z cutoff value for visualisation
 
