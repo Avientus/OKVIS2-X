@@ -61,6 +61,44 @@ int ViSlamBackend::addRadar(const RadarParameters &radarParameters)
   return realtimeGraph_.addRadar(radarParameters);
 }
 
+int ViSlamBackend::addMagnetometer(const MagnetometerParameters& params)
+{
+  fullGraph_.addMagnetometer(params);
+  return realtimeGraph_.addMagnetometer(params);
+}
+
+bool ViSlamBackend::addMagnetometerMeasurementsOnAllGraphs(
+    const MagnetometerMeasurementDeque& magMeasurementDeque)
+{
+  if (realtimeGraph_.magnetometerParametersVec_.empty()) {
+    return false;
+  }
+  if (magMeasurementDeque.empty()) {
+    return true;
+  }
+
+  if (!isLoopClosing_ && !isLoopClosureAvailable_) {
+    if (!realtimeGraph_.addMagnetometerMeasurements(magMeasurementDeque, nullptr)) {
+      LOG(ERROR) << "Failed to add magnetometer measurements to realtime graph";
+      return false;
+    }
+    if (!fullGraph_.addMagnetometerMeasurements(magMeasurementDeque, nullptr)) {
+      LOG(ERROR) << "Failed to add magnetometer measurements to full graph";
+      return false;
+    }
+  } else {
+    if (!realtimeGraph_.addMagnetometerMeasurements(magMeasurementDeque, nullptr)) {
+      LOG(ERROR) << "Failed to add magnetometer measurements to realtime graph (buffering)";
+      return false;
+    }
+    if (!fullGraph_.addMagnetometerMeasurements(magMeasurementDeque, nullptr)) {
+      LOG(ERROR) << "Failed to add magnetometer measurements to full graph (buffering)";
+      return false;
+    }
+  }
+  return true;
+}
+
 bool ViSlamBackend::addRadarMeasurementsOnAllGraphs(const RadarMeasurementDeque& radarMeasurementDeque, const ImuMeasurementDeque& imuMeasurementDeque){
   if(realtimeGraph_.radarParametersVec_.empty()) {
     return false;

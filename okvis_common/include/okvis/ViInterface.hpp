@@ -435,6 +435,17 @@ class ViInterface
    * \return Returns true normally. False if the previous one has not been processed yet.
    */
   virtual bool addRadarMeasurement(const okvis::RadarMeasurement& radarMeas) = 0;
+
+  /**
+   * \brief          Add a magnetometer measurement.
+   * \param magMeas  The magnetometer measurement (3D field vector in sensor frame [T]).
+   * \return Returns true normally. False if the previous one has not been processed yet.
+   *
+   * Switchability note: to use PX4 vehicle_attitude instead of raw mag, synthesise
+   *   magMeas.measurement.field = C_MI * C_WS_att^T * b_ref_W
+   * in the subscriber and pass through this same interface.
+   */
+  virtual bool addMagnetometerMeasurement(const okvis::MagnetometerMeasurement& magMeas) = 0;
   /// \}
   /// \name Setters
   /// \{

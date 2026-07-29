@@ -235,6 +235,7 @@ ViGraph::ViGraph() : globCartesianFrame_(earth_)
   cauchyLossFunctionPtr_.reset(new ::ceres::CauchyLoss(1.0));
   cauchyGpsLossFunctionPtr_.reset(new ::ceres::CauchyLoss(3.0));
   cauchyRadarLossFunctionPtr_.reset(new ::ceres::CauchyLoss(3.0));
+  cauchyMagnetometerLossFunctionPtr_.reset(new ::ceres::CauchyLoss(3.0));
   tukeyDepthLossFunctionPtr_.reset(new ::ceres::TukeyLoss(0.1));
   tukeyLidarLossFunctionPtr_.reset(new ::ceres::TukeyLoss(2.0));
   ::ceres::Problem::Options problemOptions;
@@ -280,6 +281,92 @@ int ViGraph::addGps(const GpsParameters& gpsParameters) {
 int ViGraph::addRadar(const RadarParameters& radarParameters) {
   radarParametersVec_.push_back(radarParameters);
   return static_cast<int>(radarParametersVec_.size()) - 1;
+}
+
+int ViGraph::addMagnetometer(const MagnetometerParameters& params) {
+  magnetometerParametersVec_.push_back(params);
+  return static_cast<int>(magnetometerParametersVec_.size()) - 1;
+}
+
+bool ViGraph::addMagnetometerMeasurement(StateId poseId,
+                                         const MagnetometerMeasurement& magMeas) {
+  if (magnetometerParametersVec_.empty()) {
+    LOG(ERROR) << "No magnetometer registered";
+    return false;
+  }
+  if (states_.find(poseId) == states_.end()) {
+    LOG(ERROR) << "State " << poseId << " not found for magnetometer measurement";
+    return false;
+  }
+
+  const MagnetometerParameters& params = magnetometerParametersVec_[0];
+
+  // Information matrix from measurement covariance
+  const Eigen::Matrix3d information = magMeas.measurement.covariances.inverse();
+
+  MagnetometerFactor factor;
+  factor.errorTerm.reset(new ceres::MagnetometerError(
+      magMeas.measurement.field,
+      information,
+      params));
+
+  auto& state = states_.at(poseId);
+  factor.residualBlockId = problem_->AddResidualBlock(
+      factor.errorTerm.get(),
+      cauchyMagnetometerLossFunctionPtr_.get(),
+      state.pose->parameters());
+
+  state.MagnetometerFactors.push_back(factor);
+  return true;
+}
+
+bool ViGraph::addMagnetometerMeasurements(const MagnetometerMeasurementDeque& magDeque,
+                                          std::deque<StateId>* sids) {
+  if (magDeque.empty()) {
+    return true;
+  }
+  if (magnetometerParametersVec_.empty()) {
+    LOG(ERROR) << "No magnetometer registered";
+    return false;
+  }
+  if (states_.empty()) {
+    return false;
+  }
+
+  if (sids) {
+    sids->assign(magDeque.size(), StateId());
+  }
+
+  // For each measurement find the nearest state by timestamp
+  for (size_t i = 0; i < magDeque.size(); ++i) {
+    const MagnetometerMeasurement& meas = magDeque[i];
+    StateId bestId;
+    double bestDt = std::numeric_limits<double>::max();
+
+    for (const auto& kv : states_) {
+      double dt = std::abs((kv.second.timestamp - meas.timeStamp).toSec());
+      if (dt < bestDt) {
+        bestDt = dt;
+        bestId = kv.first;
+      }
+    }
+
+    if (!bestId.isInitialised()) {
+      LOG(WARNING) << "No state found for magnetometer measurement at t=" << meas.timeStamp;
+      continue;
+    }
+
+    if (!addMagnetometerMeasurement(bestId, meas)) {
+      LOG(ERROR) << "Failed to add magnetometer measurement at t=" << meas.timeStamp;
+      continue;
+    }
+
+    if (sids) {
+      (*sids)[i] = bestId;
+    }
+  }
+
+  return true;
 }
 
 StateId ViGraph::addStatesInitialise(
@@ -494,6 +581,7 @@ StateId ViGraph::addStatesPropagate(const Time &timestamp,
   state.T_GW = lastState.T_GW;
   state.GpsFactors.clear();
   state.RadarFactors.clear();
+  state.MagnetometerFactors.clear();
   states_[id] = state; // actually add...
   AnyState anyState;
   anyState.timestamp = state.timestamp;

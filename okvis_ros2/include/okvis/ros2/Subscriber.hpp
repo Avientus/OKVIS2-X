@@ -33,6 +33,7 @@
 #endif
 #include <sensor_msgs/msg/image.hpp>
 #include <sensor_msgs/msg/imu.hpp>
+#include <sensor_msgs/msg/magnetic_field.hpp>
 #include <std_msgs/msg/bool.hpp>
 #include <geometry_msgs/msg/twist_with_covariance_stamped.hpp>
 #pragma GCC diagnostic push
@@ -114,6 +115,13 @@ class Subscriber
   /// @param radarId the radar sensor ID (0, 1, 2, etc.)
   void radarVelocityCallback(const geometry_msgs::msg::TwistWithCovarianceStamped::SharedPtr msg, int radarId);
 
+  /// @brief Magnetometer callback — raw sensor_msgs/MagneticField.
+  /// To switch to vehicle_attitude: replace this subscription in setNodeHandle()
+  /// with a px4_msgs/VehicleAttitude subscriber and synthesise
+  ///   field = C_MI * C_WS_att^T * b_ref_W
+  /// then call viInterface_->addMagnetometerMeasurement() with the same struct.
+  void magnetometerCallback(const sensor_msgs::msg::MagneticField::SharedPtr msg);
+
   /// @brief function that performs the synchronization of the different ir and depth images for the slam system
   void synchronizeData();
 
@@ -127,6 +135,7 @@ class Subscriber
   rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr subImu_;  ///< The IMU message subscriber.
   rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr subLiDAR_;  ///< The LiDAR message subscriber.
   std::vector<rclcpp::Subscription<geometry_msgs::msg::TwistWithCovarianceStamped>::SharedPtr> radarSubscribers_;  ///< The Radar velocity message subscribers.
+  rclcpp::Subscription<sensor_msgs::msg::MagneticField>::SharedPtr subMag_;  ///< Magnetometer subscriber.
   std::mutex time_mutex_; ///< Lock when accessing time
 
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr gtPoses_;

@@ -159,6 +159,13 @@ class ThreadedSlam : public ViInterface {
    */
   virtual bool addRadarMeasurement(const okvis::RadarMeasurement& radarMeas) override final;
 
+  /**
+   * \brief          Add a magnetometer measurement.
+   * \param magMeas  The magnetometer measurement.
+   * \return Returns true normally. False if the queue is full.
+   */
+  virtual bool addMagnetometerMeasurement(const okvis::MagnetometerMeasurement& magMeas) override final;
+
     /**
    * \brief             Add alignment constraint
    * @param submap_A_ptr  pointer to map {A}
@@ -321,6 +328,8 @@ private:
 
   /// Radar measurement input queue
   threadsafe::Queue<okvis::RadarMeasurement> radarMeasurementsReceived_;
+  /// Magnetometer measurement input queue
+  threadsafe::Queue<okvis::MagnetometerMeasurement> magMeasurementsReceived_;
 
   /// The queue containing the matching data
   threadsafe::Queue<ViVisualizer::VisualizationData::Ptr> visualisationData_;
@@ -371,6 +380,7 @@ private:
   ImuMeasurementDeque imuMeasurementDeque_;  ///< Stored IMU measurements to be used next.
   GpsMeasurementDeque gpsMeasurementDeque_;  ///< Stored GPS Measurements to be used next.
   RadarMeasurementDeque radarMeasurementDeque_;  ///< Stored Radar Measurements to be used next.
+  MagnetometerMeasurementDeque magMeasurementDeque_;  ///< Stored Magnetometer Measurements to be used next.
   LidarMeasurementDeque lidarMeasurementDeque_;  ///< Stored lidar Measurements to be used next.
   DepthMeasurementDeque depthMeasurementDeque_; ///< Stored depth Measurements to be used next.
 

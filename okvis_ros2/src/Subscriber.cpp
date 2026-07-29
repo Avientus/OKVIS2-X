@@ -21,6 +21,7 @@
 #include <atomic>
 #include <chrono>
 #include <okvis/ros2/Subscriber.hpp>
+#include <sensor_msgs/msg/magnetic_field.hpp>
 #include <okvis/ros2/PointCloudUtilities.hpp>
 #include <pcl_conversions/pcl_conversions.h>
 
@@ -111,6 +112,18 @@ void Subscriber::setNodeHandle(std::shared_ptr<rclcpp::Node> node,
         });
       RCLCPP_INFO(node_->get_logger(), "Subscribed to radar topic: %s (radar ID: %zu)", topic.c_str(), i);
     }
+  }
+
+  // Set up magnetometer subscriber (raw sensor_msgs/MagneticField on /okvis/mag0).
+  // To switch to vehicle_attitude: subscribe to px4_msgs/VehicleAttitude here instead
+  // and synthesise field = C_MI * C_WS_att^T * b_ref_W before calling addMagnetometerMeasurement.
+  if(parameters_.magnetometer) {
+    rclcpp::QoS mag_qos(rclcpp::KeepLast(500));
+    mag_qos.reliable();
+    subMag_ = node_->create_subscription<sensor_msgs::msg::MagneticField>(
+        "/okvis/mag0", mag_qos,
+        std::bind(&Subscriber::magnetometerCallback, this, std::placeholders::_1));
+    RCLCPP_INFO(node_->get_logger(), "Subscribed to magnetometer topic: /okvis/mag0");
   }
 }
 
@@ -270,6 +283,35 @@ void Subscriber::radarVelocityCallback(const geometry_msgs::msg::TwistWithCovari
   if(viInterface_ != nullptr) {
     viInterface_->addRadarMeasurement(radarMeas);
   }
+}
+
+void Subscriber::magnetometerCallback(const sensor_msgs::msg::MagneticField::SharedPtr msg)
+{
+  if (!parameters_.magnetometer || viInterface_ == nullptr) {
+    return;
+  }
+
+  const okvis::Time timestamp(msg->header.stamp.sec, msg->header.stamp.nanosec);
+
+  const Eigen::Vector3d field(
+      msg->magnetic_field.x,
+      msg->magnetic_field.y,
+      msg->magnetic_field.z);
+
+  // Use the covariance from the message if it looks valid (non-zero diagonal),
+  // otherwise fall back to the configured sigma from parameters.
+  Eigen::Map<const Eigen::Matrix<double, 3, 3, Eigen::RowMajor>> msgCov(msg->magnetic_field_covariance.data());
+  Eigen::Matrix3d covariance;
+  if (msgCov(0, 0) > 0.0) {
+    covariance = msgCov;
+  } else {
+    const double sigma = parameters_.magnetometer->sigma;
+    covariance = Eigen::Matrix3d::Identity() * (sigma * sigma);
+  }
+
+  okvis::MagnetometerSensorReadings readings(field, covariance);
+  okvis::MagnetometerMeasurement magMeas(timestamp, readings);
+  viInterface_->addMagnetometerMeasurement(magMeas);
 }
 
 void Subscriber::synchronizeData() {

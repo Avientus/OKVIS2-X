@@ -59,6 +59,7 @@
 #include <okvis/ceres/CeresIterationCallback.hpp>
 #include <okvis/ceres/GpsErrorAsynchronous.hpp>
 #include <okvis/ceres/RadarErrorAsynchronous.hpp>
+#include <okvis/ceres/MagnetometerError.hpp>
 #include <okvis/ceres/SubmapIcpError.hpp>
 
 #include <GeographicLib/Geocentric.hpp>
@@ -127,6 +128,31 @@ class ViGraph
    * @return index of radar.
    */
   int addRadar(const okvis::RadarParameters & radarParameters);
+
+  /**
+   * @brief Add a magnetometer sensor to the configuration.
+   * @param params Magnetometer sensor parameters (extrinsics, reference field, noise).
+   * @return index of magnetometer (currently always 0; only one supported).
+   */
+  int addMagnetometer(const okvis::MagnetometerParameters& params);
+
+  /**
+   * @brief Add magnetometer measurement to a specific state.
+   * @param poseId   The state to attach the factor to.
+   * @param magMeas  The magnetometer measurement.
+   * @return True on success.
+   */
+  bool addMagnetometerMeasurement(StateId poseId,
+                                  const MagnetometerMeasurement& magMeas);
+
+  /**
+   * @brief Add all queued magnetometer measurements to their nearest states.
+   * @param magDeque  Deque of magnetometer measurements (oldest to newest).
+   * @param sids      Optional output: state IDs measurements were assigned to.
+   * @return True on success.
+   */
+  bool addMagnetometerMeasurements(const MagnetometerMeasurementDeque& magDeque,
+                                   std::deque<StateId>* sids = nullptr);
 
   // add states
   /**
@@ -805,6 +831,9 @@ protected:
   /// \brief Radar factor pose graph edge.
   using RadarFactor = GraphEdge<ceres::RadarErrorAsynchronous>;
 
+  /// \brief Magnetometer factor pose graph edge.
+  using MagnetometerFactor = GraphEdge<ceres::MagnetometerError>;
+
   /// \brief
   using SubmapAlignmentFactor = GraphEdge<ceres::SubmapIcpError>;
 
@@ -832,6 +861,7 @@ protected:
     std::map<StateId, RelativePoseLink> relativePoseLinks; ///< All relative pose graph edges.
     std::vector<GpsFactor> GpsFactors; ///< All GPS factors
     std::vector<RadarFactor> RadarFactors; ///< All radar factors
+    std::vector<MagnetometerFactor> MagnetometerFactors; ///< All magnetometer factors
     // ToDo: how to store  submap alignment factors for two states
     std::vector<::ceres::ResidualBlockId> mapResIds;
     std::vector<SubmapAlignmentFactor> submapReferenceLinks;
@@ -861,6 +891,8 @@ protected:
       Eigen::aligned_allocator<okvis::GpsParameters> > gpsParametersVec_; ///< GPS parameters
   std::vector<okvis::RadarParameters,
       Eigen::aligned_allocator<okvis::RadarParameters> > radarParametersVec_; ///< Radar parameters
+  std::vector<okvis::MagnetometerParameters,
+      Eigen::aligned_allocator<okvis::MagnetometerParameters>> magnetometerParametersVec_; ///< Magnetometer parameters
 
   // this stores the elements of the graph (note the redundancy for spee in the states)
   std::map<StateId, State> states_; ///< Store all states.
@@ -911,6 +943,7 @@ protected:
   std::shared_ptr< ::ceres::LossFunction> cauchyLossFunctionPtr_; ///< Cauchy loss.
   std::shared_ptr< ::ceres::LossFunction> cauchyGpsLossFunctionPtr_; ///< Cauchy loss for GPS.
   std::shared_ptr< ::ceres::LossFunction> cauchyRadarLossFunctionPtr_; ///< Cauchy loss for radar.
+  std::shared_ptr< ::ceres::LossFunction> cauchyMagnetometerLossFunctionPtr_; ///< Cauchy loss for magnetometer.
   std::shared_ptr< ::ceres::LossFunction> huberLossFunctionPtr_; ///< Huber loss.
   std::shared_ptr< ::ceres::LossFunction> tukeyDepthLossFunctionPtr_; ///< Tukey loss for Depth.
   std::shared_ptr< ::ceres::LossFunction> tukeyLidarLossFunctionPtr_; ///< Tukey loss for LiDAR.

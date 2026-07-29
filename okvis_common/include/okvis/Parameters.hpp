@@ -186,6 +186,27 @@ struct RadarParameters {
 };
 
 
+/**
+ * @brief Struct to specify parameters of the magnetometer sensor.
+ *
+ * The cost function computes:  e = C_MI * C_WS^T * b_ref_W - b_measured_M
+ * where C_MI is the rotation from magnetometer to IMU frame (from T_IM).
+ *
+ * Switchability note: to use PX4 vehicle_attitude instead of raw magnetometer,
+ * synthesize b_measured_M = C_MI * C_WS_att^T * b_ref_W in the subscriber
+ * and pass it through the same MagnetometerMeasurement interface.
+ */
+struct MagnetometerParameters {
+  EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+  okvis::kinematics::Transformation T_IM;  ///< Transform from IMU to magnetometer frame.
+  Eigen::Vector3d b_ref_W;  ///< Reference magnetic field in world (NED) frame [T].
+  double sigma = 1e-6;      ///< Measurement noise std dev [T].
+
+  MagnetometerParameters()
+      : T_IM(okvis::kinematics::Transformation()),
+        b_ref_W(Eigen::Vector3d::Zero()) {}
+};
+
 /// @brief Struct to combine all parameters and settings.
 struct ViParameters {
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
@@ -195,6 +216,7 @@ struct ViParameters {
   std::optional<GpsParameters> gps; ///< Gps parameters.
   std::optional<LidarParameters> lidar; ///< LiDAR parameters
   std::vector<RadarParameters> radars; ///< Radar parameters (supports multiple radars)
+  std::optional<MagnetometerParameters> magnetometer; ///< Magnetometer parameters.
   FrontendParameters frontend; ///< Frontend parameters.
   EstimatorParameters estimator; ///< Estimator parameters.
   OutputParameters output; ///< Output parameters.

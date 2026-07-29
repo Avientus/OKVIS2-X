@@ -99,6 +99,13 @@ class ViSlamBackend //: public VioBackendInterface
    */
   int addRadar(const okvis::RadarParameters & radarParameters);
 
+  /**
+   * @brief Add a magnetometer sensor to the configuration.
+   * @param params Magnetometer sensor parameters.
+   * @return index of magnetometer.
+   */
+  int addMagnetometer(const okvis::MagnetometerParameters& params);
+
 
   /**
    * @brief Add a pose to the state.
@@ -633,6 +640,11 @@ class ViSlamBackend //: public VioBackendInterface
   /// \param imuMeasurementDeque Queue containing a sequence of IMU measurements
   /// \return True on success
   bool addRadarMeasurementsOnAllGraphs(const RadarMeasurementDeque& radarMeasurementDeque, const ImuMeasurementDeque& imuMeasurementDeque);
+
+  /// \brief Add Magnetometer constraints on all Graph members
+  /// \param magMeasurementDeque Queue containing a sequence of magnetometer measurements
+  /// \return True on success
+  bool addMagnetometerMeasurementsOnAllGraphs(const MagnetometerMeasurementDeque& magMeasurementDeque);
 
   /// \brief Check for (and if needed apply) available alignments due to GPS signals
   /// \return True if alignment has been applied, false if not

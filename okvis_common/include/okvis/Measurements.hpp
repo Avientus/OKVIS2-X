@@ -288,6 +288,22 @@ struct RadarSensorReadings {
 typedef Measurement<RadarSensorReadings> RadarMeasurement;
 typedef std::deque<RadarMeasurement, Eigen::aligned_allocator<RadarMeasurement> > RadarMeasurementDeque;
 
+/// \brief Magnetometer measurements.
+struct MagnetometerSensorReadings {
+  MagnetometerSensorReadings()
+      : field(Eigen::Vector3d::Zero()),
+        covariances(Eigen::Matrix3d::Identity()) {}
+  MagnetometerSensorReadings(const Eigen::Vector3d& field_,
+                             const Eigen::Matrix3d& covariances_)
+      : field(field_), covariances(covariances_) {}
+
+  Eigen::Vector3d field;        ///< Magnetic field vector in magnetometer frame [T].
+  Eigen::Matrix3d covariances;  ///< Measurement covariances [T^2].
+};
+typedef Measurement<MagnetometerSensorReadings> MagnetometerMeasurement;
+typedef std::deque<MagnetometerMeasurement,
+    Eigen::aligned_allocator<MagnetometerMeasurement>> MagnetometerMeasurementDeque;
+
 }  // namespace okvis
 
 #endif // INCLUDE_OKVIS_MEASUREMENTS_HPP_
