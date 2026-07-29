@@ -295,7 +295,7 @@ bool ViGraph::addMagnetometerMeasurement(StateId poseId,
     return false;
   }
   if (states_.find(poseId) == states_.end()) {
-    LOG(ERROR) << "State " << poseId << " not found for magnetometer measurement";
+    LOG(ERROR) << "State " << poseId.value() << " not found for magnetometer measurement";
     return false;
   }
 
