@@ -21,7 +21,7 @@ general:
   # Alignment settings
   use_map_to_map_factors: true
   use_map_to_live_factors: true
-  n_factors_per_state: 200 # number of points per depth images
+  n_factors_per_state: 100 # number of points per depth images
   sensor_error: 0.4 # 1-sigma for obsv. noise [m]
 
   # Occupancy grid settings

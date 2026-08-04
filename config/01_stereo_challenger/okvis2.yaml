@@ -15,7 +15,7 @@ cameras:
      mapping: true,
      mapping_rectification: true,
      slam_use: okvis}
-     
+
      # Stereo Right (cam 1)
   - {T_SC: [-0.02836091, -0.3819827,   0.9237342,   0.08221052,
         0.99955877, -0.01899814,  0.02283279,  0.06404161,
@@ -27,7 +27,7 @@ cameras:
      focal_length: [413.1960175983617, 413.1991495539231],
      principal_point: [302.0780322224247, 185.62581447146772],
      cam_model: pinhole,
-     camera_type: gray, #gray, rgb, gray+depth, rgb+depth 
+     camera_type: gray, #gray, rgb, gray+depth, rgb+depth
      mapping: true,
      mapping_rectification: true,
      slam_use: okvis} #none, okvis, okvis-depth, okvis-virtual
@@ -37,7 +37,7 @@ camera_parameters:
     sync_cameras: [0, 1] # the cameras that will be synchronised
     image_delay: 0.0 # [s] timestamp_camera_correct = timestamp_camera - image_delay
     online_calibration: # some parameters to set the online
-        do_extrinsics: true  # Simulator has known extrinsics
+        do_extrinsics: false  # Simulator has known extrinsics
         do_extrinsics_final_ba: false
         sigma_r: 0.01 # T_SCi position prior stdev [m]
         sigma_alpha: 0.1 # T_SCi orientation prior stdev [rad]
@@ -69,20 +69,20 @@ imu_parameters:
 
 # frontend: detection etc.
 frontend_parameters:
-    detection_threshold: 38.0 # detection threshold. By default the uniformity radius in pixels
-    absolute_threshold: 200.0 # absolute Harris corner threshold (noise floor)
-    matching_threshold: 60.0 # BRISK descriptor matching threshold
-    octaves: 0 # number of octaves for detection. 0 means single-scale at highest resolution
-    max_num_keypoints: 400 # restrict to a maximum of this many keypoints per image (strongest ones)
+    detection_threshold: 50.0 # detection threshold. By default the uniformity radius in pixels
+    absolute_threshold: 250.0 # absolute Harris corner threshold (noise floor)
+    matching_threshold: 65.0 # BRISK descriptor matching threshold
+    octaves: 1 # number of octaves for detection. 0 means single-scale at highest resolution
+    max_num_keypoints: 200 # restrict to a maximum of this many keypoints per image (strongest ones)
     keyframe_overlap: 0.60 # minimum field-of-view overlap
     use_cnn: false # use the CNN (if available) to filter out dynamic content / sky
     parallelise_detection: true # Run parallel detect & describe.
-    num_matching_threads: 4 # Parallelise matching with this number of threads.
+    num_matching_threads: 3 # Parallelise matching with this number of threads.
 
 # estimator parameters
 estimator_parameters:
-    num_keyframes: 5 # number of keyframes in optimisation window
-    num_loop_closure_frames: 3 # number of loop closure frames in optimisation window
+    num_keyframes: 3 # number of keyframes in optimisation window
+    num_loop_closure_frames: 2 # number of loop closure frames in optimisation window
     num_imu_frames: 3 # number of frames linked by most recent nonlinear IMU error terms
     do_loop_closures: true # whether to do VI-SLAM or VIO
     do_final_ba: false # Whether to run a full final BA
@@ -94,11 +94,11 @@ estimator_parameters:
     full_graph_iterations: 15 # don't do more than these for the full (background) optimisation
     full_graph_num_threads: 3 # number of threads for the full (background) optimisation
     p_dbow: 0.35 # Match threshold for dBoW -- unfortunately this varies with setups.
-    drift_percentage_heuristic:  2.5 # % allowed drift in loop closures rel. to dist. travelled.
+    drift_percentage_heuristic:  1.3 # % allowed drift in loop closures rel. to dist. travelled.
 
 # some options for how and what to output
 output_parameters:
-    display_topview: true # Displays top view of the trajectory. Might become slow for long sequences.
+    display_topview: false # Displays top view of the trajectory. Might become slow for long sequences.
     display_matches: false  # displays debug video and matches. May be slow.
     display_overhead: false # debug overhead image. Is slow.
-    enable_submapping: true # Enable volumetric submapping
+    enable_submapping: false # Enable volumetric submapping
