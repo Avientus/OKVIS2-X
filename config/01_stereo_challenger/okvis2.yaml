@@ -1,0 +1,104 @@
+%YAML:1.0
+cameras:
+    # Stereo Left (cam 0)
+  - {T_SC: [-0.08937486, -0.41517300,  0.90534166,  0.16103208,
+        0.99590859, -0.02506810,  0.08681981, -0.08317564,
+       -0.01335004,  0.90939704,  0.41571481,  0.06896378,
+        0.        ,  0.        ,  0.        ,  1.        ],
+     image_dimension: [640, 360],
+     distortion_type: equidistant,
+     distortion_coefficients: [-0.009211822352978386, -0.09872336090588113, 0.1349223527470886, -0.06512296991749678],
+     focal_length:  [366.0359246953492, 366.03364961124475],
+     principal_point:  [317.46427053875146, 182.74018199000693],
+     cam_model: pinhole,
+     camera_type: gray+depth,
+     mapping: true,
+     mapping_rectification: true,
+     slam_use: okvis}
+     
+     # Stereo Right (cam 1)
+  - {T_SC: [ 0.06010936, -0.41992981,  0.90556381,  0.15837184,
+        0.99669210, -0.02446146, -0.07750157,  0.10862165,
+        0.05469663,  0.90722687,  0.41707037,  0.07034237,
+        0.        ,  0.        ,  0.        ,  1.        ],
+     image_dimension: [640, 360],
+     distortion_coefficients: [-0.018295299873801255, -0.04548396705741959, 0.040617219382436266, -0.012219883302943622],
+     distortion_type: equidistant,
+     focal_length: [362.0544251875278, 361.94948469663274],
+     principal_point: [335.4072061896592, 185.6033555527814],
+     cam_model: pinhole,
+     camera_type: gray, #gray, rgb, gray+depth, rgb+depth 
+     mapping: true,
+     mapping_rectification: true,
+     slam_use: okvis} #none, okvis, okvis-depth, okvis-virtual
+          
+camera_parameters:
+    timestamp_tolerance: 0.005 # [s] stereo frame out-of-sync tolerance
+    sync_cameras: [0, 1] # the cameras that will be synchronised
+    image_delay: 0.0 # [s] timestamp_camera_correct = timestamp_camera - image_delay
+    online_calibration: # some parameters to set the online
+        do_extrinsics: true  # Simulator has known extrinsics
+        do_extrinsics_final_ba: false
+        sigma_r: 0.01 # T_SCi position prior stdev [m]
+        sigma_alpha: 0.1 # T_SCi orientation prior stdev [rad]
+        sigma_r_final_ba: 0.03 # T_SCi position prior stdev in final BA [m]
+        sigma_alpha_final_ba: 0.3 # T_SCi orientation prior stdev in final BA [rad]
+    deep_stereo_indices: [0,1] # [left, right] camera indices for the stereo network
+    fov_scale: 1.0 # Divisor for new focal length which is only used when fisheye stereo rectification for dense mapping.
+
+imu_parameters:
+    use: true
+    a_max: 163.84 # acceleration saturation [m/s^2] (PX4 default)
+    g_max: 5.72 # gyro saturation [rad/s] (PX4 default)
+    sigma_g_c: 6.790355692422306e-04      # gyro noise density [rad/s/sqrt(Hz)] <- imu_challenger.yaml gyroscope_noise_density
+    sigma_a_c: 0.010894695987700165      # accelerometer noise density [m/s^2/sqrt(Hz)] <- imu_challenger.yaml accelerometer_noise_density
+    sigma_bg: 4.027038e-03  # gyro bias prior [rad/s]
+    sigma_ba: 4.827057e-02 # accelerometer bias prior [m/s^2]
+    sigma_gw_c: 1.8484762878126347e-05    # gyro drift noise density [rad/s^2/sqrt(Hz)] <- imu_challenger.yaml gyroscope_random_walk
+    sigma_aw_c: 5.2811480875574934e-04    # accelerometer drift noise density [m/s^2/sqrt(Hz)] <- imu_challenger.yaml accelerometer_random_walk
+    g: 9.8100776 # Earth's acceleration due to gravity [m/s^2]
+    g0: [0.0, 0.0, 0.0] # initial gyroscope bias [rad/s]
+    a0: [0.0, 0.0, 0.0] # initial accelerometer bias [m/s^2]
+    s_a: [1.0,1.0,1.0]
+
+    T_BS:
+        [1.0000, 0.0000, 0.0000, 0.0000,
+         0.0000, 1.0000, 0.0000, 0.0000,
+         0.0000, 0.0000, 1.0000, 0.0000,
+         0.0000, 0.0000, 0.0000, 1.0000]
+
+# frontend: detection etc.
+frontend_parameters:
+    detection_threshold: 38.0 # detection threshold. By default the uniformity radius in pixels
+    absolute_threshold: 200.0 # absolute Harris corner threshold (noise floor)
+    matching_threshold: 60.0 # BRISK descriptor matching threshold
+    octaves: 0 # number of octaves for detection. 0 means single-scale at highest resolution
+    max_num_keypoints: 400 # restrict to a maximum of this many keypoints per image (strongest ones)
+    keyframe_overlap: 0.60 # minimum field-of-view overlap
+    use_cnn: false # use the CNN (if available) to filter out dynamic content / sky
+    parallelise_detection: true # Run parallel detect & describe.
+    num_matching_threads: 4 # Parallelise matching with this number of threads.
+
+# estimator parameters
+estimator_parameters:
+    num_keyframes: 5 # number of keyframes in optimisation window
+    num_loop_closure_frames: 3 # number of loop closure frames in optimisation window
+    num_imu_frames: 3 # number of frames linked by most recent nonlinear IMU error terms
+    do_loop_closures: true # whether to do VI-SLAM or VIO
+    do_final_ba: false # Whether to run a full final BA
+    enforce_realtime: true # whether to limit the time budget for optimisation
+    realtime_min_iterations: 3 # minimum number of iterations always performed
+    realtime_max_iterations: 10 # never do more than these, even if not converged
+    realtime_time_limit: 0.035 # time budget for realtime optimisation [s]
+    realtime_num_threads: 4 # number of threads for the realtime optimisation
+    full_graph_iterations: 15 # don't do more than these for the full (background) optimisation
+    full_graph_num_threads: 3 # number of threads for the full (background) optimisation
+    p_dbow: 0.35 # Match threshold for dBoW -- unfortunately this varies with setups.
+    drift_percentage_heuristic:  2.5 # % allowed drift in loop closures rel. to dist. travelled.
+
+# some options for how and what to output
+output_parameters:
+    display_topview: true # Displays top view of the trajectory. Might become slow for long sequences.
+    display_matches: false  # displays debug video and matches. May be slow.
+    display_overhead: false # debug overhead image. Is slow.
+    enable_submapping: true # Enable volumetric submapping
