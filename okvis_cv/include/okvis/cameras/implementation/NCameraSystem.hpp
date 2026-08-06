@@ -198,6 +198,16 @@ size_t NCameraSystem::numUsedCameras() const {
   return numUsedCameras_;
 }
 
+void NCameraSystem::setCameraGeometry(size_t cameraIndex,
+    std::shared_ptr<const cameras::CameraBase> geometry,
+    DistortionType distortionType) {
+  OKVIS_ASSERT_TRUE(Exception, cameraIndex < cameraGeometries_.size(),
+                    "Camera index " << cameraIndex << " out of bounds.");
+  cameraGeometries_.at(cameraIndex) = geometry;
+  distortionTypes_.at(cameraIndex) = distortionType;
+  computeOverlaps();
+}
+
 void NCameraSystem::addRectifyCamera(
     size_t cameraIndex,
     std::shared_ptr<const okvis::kinematics::Transformation> T_SC,

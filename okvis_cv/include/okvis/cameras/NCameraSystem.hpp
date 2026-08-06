@@ -126,6 +126,14 @@ class NCameraSystem
   /// @param[in] T_SCi The new extrinsics.
   inline void setExtrinsics(size_t cameraIndex, kinematics::Transformation T_SCi);
 
+  /// \brief Replace the camera geometry of an already-added camera (e.g. after camera_info update).
+  /// @param[in] cameraIndex The camera index to update.
+  /// @param[in] geometry The new camera geometry.
+  /// @param[in] distortionType The distortion type matching the new geometry.
+  inline void setCameraGeometry(size_t cameraIndex,
+                                 std::shared_ptr<const cameras::CameraBase> geometry,
+                                 DistortionType distortionType);
+
   /// \brief Get the camera geometry of camera cameraIndex
   /// @param[in] cameraIndex The camera index for which the camera geometry should be returned.
   /// @return The camera geometry.

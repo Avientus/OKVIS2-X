@@ -41,6 +41,7 @@
 #include <okvis/ros2/Publisher.hpp>
 #include <okvis/ThreadedPublisher.hpp>
 
+#include <sensor_msgs/msg/camera_info.hpp>
 #include <std_srvs/srv/set_bool.hpp>
 
 
@@ -84,6 +85,51 @@ int main(int argc, char **argv) {
   okvis::ViParametersReader viParametersReader(configFilename);
   okvis::ViParameters parameters;
   viParametersReader.getParameters(parameters);
+
+  bool use_camera_info = false;
+  node->declare_parameter("use_camera_info", false);
+  node->get_parameter("use_camera_info", use_camera_info);
+
+  if (use_camera_info) {
+    const size_t numCams = parameters.nCameraSystem.numCameras();
+    LOG(INFO) << "use_camera_info=true: waiting for camera_info on " << numCams << " camera(s)...";
+
+    std::vector<bool> received(numCams, false);
+    std::vector<rclcpp::Subscription<sensor_msgs::msg::CameraInfo>::SharedPtr> subs(numCams);
+
+    for (size_t i = 0; i < numCams; ++i) {
+      subs[i] = node->create_subscription<sensor_msgs::msg::CameraInfo>(
+          "/okvis/cam" + std::to_string(i) + "/camera_info", 1,
+          [&, i](const sensor_msgs::msg::CameraInfo::SharedPtr msg) {
+            if (received[i]) return;
+            std::vector<double> D(msg->d.begin(), msg->d.end());
+            // K is row-major 3x3: [fx, 0, cx, 0, fy, cy, 0, 0, 1]
+            bool ok = viParametersReader.overrideCameraIntrinsicsFromCameraInfo(
+                i, static_cast<int>(msg->width), static_cast<int>(msg->height),
+                msg->k[0], msg->k[4], msg->k[2], msg->k[5],
+                msg->distortion_model, D);
+            if (!ok) {
+              LOG(FATAL) << "Failed to apply camera_info for camera " << i;
+            }
+            received[i] = true;
+          });
+    }
+
+    auto deadline = node->now() + rclcpp::Duration(10, 0);
+    while (!std::all_of(received.begin(), received.end(), [](bool v) { return v; })) {
+      rclcpp::spin_some(node);
+      if (node->now() > deadline) {
+        LOG(FATAL) << "Timed out waiting for camera_info. "
+                   << "Ensure /okvis/cam{i}/camera_info topics are published.";
+        return EXIT_FAILURE;
+      }
+    }
+    for (auto& sub : subs) sub.reset();
+
+    viParametersReader.getParameters(parameters);
+    LOG(INFO) << "All camera intrinsics updated from camera_info.";
+  }
+
   double imu_propagated_state_publishing_rate = 0.0;
   node->get_parameter("imu_propagated_state_publishing_rate", imu_propagated_state_publishing_rate);
 

@@ -452,6 +452,44 @@ void ViParametersReader::parseEntry(const cv::FileNode& file, std::string name,
   readValue = std::string(T);
 }
 
+bool ViParametersReader::overrideCameraIntrinsicsFromCameraInfo(
+    size_t cameraIdx, int width, int height,
+    double fx, double fy, double cx, double cy,
+    const std::string& distortionModel, const std::vector<double>& D) {
+
+  const size_t numCams = viParameters_.nCameraSystem.numCameras();
+  if (cameraIdx >= numCams) {
+    LOG(ERROR) << "camera_info override: camera index " << cameraIdx
+               << " out of range (system has " << numCams << " cameras).";
+    return false;
+  }
+
+  if (distortionModel != "equidistant") {
+    LOG(ERROR) << "camera_info override only supports equidistant distortion, got '"
+               << distortionModel << "'.";
+    return false;
+  }
+  if (D.size() < 4) {
+    LOG(ERROR) << "equidistant requires 4 coefficients, got " << D.size();
+    return false;
+  }
+
+  auto c = std::make_shared<cameras::PinholeCamera<cameras::EquidistantDistortion>>(
+      width, height, fx, fy, cx, cy,
+      cameras::EquidistantDistortion(D[0], D[1], D[2], D[3]));
+  c->initialiseUndistortMaps();
+  c->initialiseCameraAwarenessMaps();
+
+  viParameters_.nCameraSystem.setCameraGeometry(
+      cameraIdx,
+      std::static_pointer_cast<const cameras::CameraBase>(c),
+      cameras::NCameraSystem::Equidistant);
+  LOG(INFO) << "Camera " << cameraIdx << " intrinsics set from camera_info:"
+            << " fx=" << fx << " fy=" << fy << " cx=" << cx << " cy=" << cy
+            << " [" << width << "x" << height << "]";
+  return true;
+}
+
 bool ViParametersReader::getCameraCalibration(
     std::vector<CameraCalibration,Eigen::aligned_allocator<CameraCalibration>> & calibrations,
     cv::FileStorage& configurationFile) {

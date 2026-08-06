@@ -74,6 +74,25 @@ class ViParametersReader{
     return readConfigFile_;
   }
 
+  /**
+   * @brief Override pinhole+equidistant camera intrinsics from camera_info data.
+   *        T_SC and camera role flags are preserved from the config.
+   *        Requires distortion_model == "equidistant" with 4 coefficients.
+   * @param cameraIdx Camera index in the NCameraSystem.
+   * @param width Image width in pixels.
+   * @param height Image height in pixels.
+   * @param fx Focal length x [px].
+   * @param fy Focal length y [px].
+   * @param cx Principal point x [px].
+   * @param cy Principal point y [px].
+   * @param distortionModel Must be "equidistant".
+   * @param D Four equidistant distortion coefficients.
+   * @return True on success.
+   */
+  bool overrideCameraIntrinsicsFromCameraInfo(size_t cameraIdx,
+      int width, int height, double fx, double fy, double cx, double cy,
+      const std::string& distortionModel, const std::vector<double>& D);
+
  protected:
 
   /// @brief Struct that contains all the camera calibration information.
