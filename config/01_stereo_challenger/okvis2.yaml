@@ -50,12 +50,12 @@ imu_parameters:
     use: true
     a_max: 163.84 # acceleration saturation [m/s^2] (PX4 default)
     g_max: 5.72 # gyro saturation [rad/s] (PX4 default)
-    sigma_g_c: 6.54192398374904e-04
-    sigma_a_c: 0.01122041716817202322     # accelerometer noise density [m/s^2/sqrt(Hz)]
+    sigma_g_c: 6.790355692422306e-04      # gyro noise density [rad/s/sqrt(Hz)] <- imu_challenger.yaml gyroscope_noise_density
+    sigma_a_c: 0.010894695987700165      # accelerometer noise density [m/s^2/sqrt(Hz)] <- imu_challenger.yaml accelerometer_noise_density
     sigma_bg: 4.027038e-03  # gyro bias prior [rad/s]
     sigma_ba: 4.827057e-02 # accelerometer bias prior [m/s^2]
-    sigma_gw_c: 3.5772073474968240967256775e-05 # gyro drift noise density [rad/s^s/sqrt(Hz)]
-    sigma_aw_c: 3.940336355309908618458486e-3 # accelerometer drift noise density [m/s^2/sqrt(Hz)]
+    sigma_gw_c: 1.8484762878126347e-05    # gyro drift noise density [rad/s^2/sqrt(Hz)] <- imu_challenger.yaml gyroscope_random_walk
+    sigma_aw_c: 5.2811480875574934e-04    # accelerometer drift noise density [m/s^2/sqrt(Hz)] <- imu_challenger.yaml accelerometer_random_walk
     g: 9.8100776 # Earth's acceleration due to gravity [m/s^2]
     g0: [0.0, 0.0, 0.0] # initial gyroscope bias [rad/s]
     a0: [0.0, 0.0, 0.0] # initial accelerometer bias [m/s^2]
@@ -63,8 +63,8 @@ imu_parameters:
 
     T_BS:
         [1.0000, 0.0000, 0.0000, 0.0000,
-         0.0000, 1.0000, 0.0000, 0.0000,
-         0.0000, 0.0000, 1.0000, 0.0000,
+         0.0000, -1.0000, 0.0000, 0.0000,
+         0.0000, 0.0000, -1.0000, 0.0000,
          0.0000, 0.0000, 0.0000, 1.0000]
 
 # frontend: detection etc.
