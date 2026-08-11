@@ -1,33 +1,33 @@
 %YAML:1.0
 cameras:
     # Stereo Left (cam 0)
-  - {T_SC: [-0.08937486, -0.41517300,  0.90534166,  0.16103208,
-        0.99590859, -0.02506810,  0.08681981, -0.08317564,
-       -0.01335004,  0.90939704,  0.41571481,  0.06896378,
-        0.        ,  0.        ,  0.        ,  1.        ],
+  - {T_SC: [-0.01462683, -0.38037337,  0.92471734,  0.0884588,
+        0.99982454, -0.01638738,  0.00907406, -0.13647743,
+        0.01170216,  0.92468781,  0.38054633,  0.14169152,
+        0.,          0.,          0.,          1.        ],
      image_dimension: [640, 360],
      distortion_type: equidistant,
-     distortion_coefficients: [-0.009211822352978386, -0.09872336090588113, 0.1349223527470886, -0.06512296991749678],
-     focal_length:  [366.0359246953492, 366.03364961124475],
-     principal_point:  [317.46427053875146, 182.74018199000693],
+     distortion_coefficients: [-0.2206115868429776, 0.8231590422789293, -1.9681164167591725, 1.6469311676844083],
+     focal_length:  [407.351378073769, 406.97812172493],
+     principal_point:  [315.77438652919636, 177.12693199336775],
      cam_model: pinhole,
      camera_type: gray+depth,
      mapping: true,
      mapping_rectification: true,
      slam_use: okvis}
-     
+
      # Stereo Right (cam 1)
-  - {T_SC: [ 0.06010936, -0.41992981,  0.90556381,  0.15837184,
-        0.99669210, -0.02446146, -0.07750157,  0.10862165,
-        0.05469663,  0.90722687,  0.41707037,  0.07034237,
-        0.        ,  0.        ,  0.        ,  1.        ],
+  - {T_SC: [-0.02836091, -0.3819827,   0.9237342,   0.08221052,
+        0.99955877, -0.01899814,  0.02283279,  0.06404161,
+        0.0088275,   0.92397418,  0.38235296,  0.14209826,
+        0.,          0.,          0.,          1.        ],
      image_dimension: [640, 360],
-     distortion_coefficients: [-0.018295299873801255, -0.04548396705741959, 0.040617219382436266, -0.012219883302943622],
+     distortion_coefficients: [-0.6528255535522096, 4.9294995979568785, -15.917904369020045, 16.953934484580905],
      distortion_type: equidistant,
-     focal_length: [362.0544251875278, 361.94948469663274],
-     principal_point: [335.4072061896592, 185.6033555527814],
+     focal_length: [413.1960175983617, 413.1991495539231],
+     principal_point: [302.0780322224247, 185.62581447146772],
      cam_model: pinhole,
-     camera_type: gray, #gray, rgb, gray+depth, rgb+depth 
+     camera_type: gray, #gray, rgb, gray+depth, rgb+depth
      mapping: true,
      mapping_rectification: true,
      slam_use: okvis} #none, okvis, okvis-depth, okvis-virtual
@@ -50,12 +50,12 @@ imu_parameters:
     use: true
     a_max: 163.84 # acceleration saturation [m/s^2] (PX4 default)
     g_max: 5.72 # gyro saturation [rad/s] (PX4 default)
-    sigma_g_c: 6.54192398374904e-04
-    sigma_a_c: 0.01122041716817202322     # accelerometer noise density [m/s^2/sqrt(Hz)]
+    sigma_g_c: 6.790355692422306e-04      # gyro noise density [rad/s/sqrt(Hz)] <- imu_challenger.yaml gyroscope_noise_density
+    sigma_a_c: 0.010894695987700165      # accelerometer noise density [m/s^2/sqrt(Hz)] <- imu_challenger.yaml accelerometer_noise_density
     sigma_bg: 4.027038e-03  # gyro bias prior [rad/s]
     sigma_ba: 4.827057e-02 # accelerometer bias prior [m/s^2]
-    sigma_gw_c: 3.5772073474968240967256775e-05 # gyro drift noise density [rad/s^s/sqrt(Hz)]
-    sigma_aw_c: 3.940336355309908618458486e-3 # accelerometer drift noise density [m/s^2/sqrt(Hz)]
+    sigma_gw_c: 1.8484762878126347e-05    # gyro drift noise density [rad/s^2/sqrt(Hz)] <- imu_challenger.yaml gyroscope_random_walk
+    sigma_aw_c: 5.2811480875574934e-04    # accelerometer drift noise density [m/s^2/sqrt(Hz)] <- imu_challenger.yaml accelerometer_random_walk
     g: 9.8100776 # Earth's acceleration due to gravity [m/s^2]
     g0: [0.0, 0.0, 0.0] # initial gyroscope bias [rad/s]
     a0: [0.0, 0.0, 0.0] # initial accelerometer bias [m/s^2]

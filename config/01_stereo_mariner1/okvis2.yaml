@@ -15,7 +15,7 @@ cameras:
      mapping: true,
      mapping_rectification: true,
      slam_use: okvis}
-     
+
      # Stereo Right (cam 1)
   - {T_SC: [ 0.06010936, -0.41992981,  0.90556381,  0.15837184,
         0.99669210, -0.02446146, -0.07750157,  0.10862165,
@@ -27,7 +27,7 @@ cameras:
      focal_length: [362.0544251875278, 361.94948469663274],
      principal_point: [335.4072061896592, 185.6033555527814],
      cam_model: pinhole,
-     camera_type: gray, #gray, rgb, gray+depth, rgb+depth 
+     camera_type: gray, #gray, rgb, gray+depth, rgb+depth
      mapping: true,
      mapping_rectification: true,
      slam_use: okvis} #none, okvis, okvis-depth, okvis-virtual
