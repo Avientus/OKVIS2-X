@@ -150,6 +150,17 @@ estimator_parameters:
     p_dbow: 0.4 # Match threshold for dBoW -- unfortunately this varies with setups.
     drift_percentage_heuristic: 1.35 # % allowed drift in loop closures rel. to dist. travelled.
 
+# altimeter parameters: fuses a vertical-rate factor derived from PX4's downward
+# rangefinder (vehicle_local_position.dist_bottom) to arrest long-term z-drift.
+# This is NOT an absolute height constraint -- see AltimeterErrorAsynchronous.
+altimeter_parameters:
+    use: false # set true to enable; disabled by default until tuned on this platform
+    moving_average_window: 1.0 # [s] window for the vertical-rate line fit. 0 = plain two-point diff.
+    max_vertical_speed: 5.0 # [m/s] gate: reject a fitted vertical rate exceeding this magnitude
+    max_fit_residual: 0.15 # [m] gate: reject the window if the line-fit RMS residual exceeds this
+    min_dt: 0.2 # [s] minimum time span the window must cover before fitting
+    max_dt: 3.0 # [s] maximum time span a window may cover (older samples are dropped)
+
 # some options for how and what to output
 output_parameters:
     display_topview: true # Displays top view of the trajectory. Might become slow for long sequences.

@@ -35,6 +35,8 @@
 #include <sensor_msgs/msg/imu.hpp>
 #include <std_msgs/msg/bool.hpp>
 #include <geometry_msgs/msg/twist_with_covariance_stamped.hpp>
+#include <px4_msgs/msg/vehicle_local_position.hpp>
+#include <deque>
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Woverloaded-virtual"
 #include <opencv2/opencv.hpp>
@@ -114,6 +116,14 @@ class Subscriber
   /// @param radarId the radar sensor ID (0, 1, 2, etc.)
   void radarVelocityCallback(const geometry_msgs::msg::TwistWithCovarianceStamped::SharedPtr msg, int radarId);
 
+  /// @brief The PX4 downward-rangefinder callback. Maintains a rolling window of raw
+  ///        dist_bottom samples and, on each new sample, fits a least-squares line
+  ///        through the window to obtain a (low-noise, self-scaling-sigma) vertical
+  ///        rate estimate -- see AltimeterErrorAsynchronous for why a rate rather
+  ///        than an absolute height is fused.
+  /// @param msg the PX4 vehicle_local_position message
+  void distanceSensorCallback(const px4_msgs::msg::VehicleLocalPosition::SharedPtr msg);
+
   /// @brief function that performs the synchronization of the different ir and depth images for the slam system
   void synchronizeData();
 
@@ -127,6 +137,7 @@ class Subscriber
   rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr subImu_;  ///< The IMU message subscriber.
   rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr subLiDAR_;  ///< The LiDAR message subscriber.
   std::vector<rclcpp::Subscription<geometry_msgs::msg::TwistWithCovarianceStamped>::SharedPtr> radarSubscribers_;  ///< The Radar velocity message subscribers.
+  rclcpp::Subscription<px4_msgs::msg::VehicleLocalPosition>::SharedPtr subAltimeter_;  ///< The PX4 rangefinder-derived local position subscriber.
   std::mutex time_mutex_; ///< Lock when accessing time
 
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr gtPoses_;
@@ -145,6 +156,14 @@ class Subscriber
   std::vector<std::map<uint64_t, cv::Mat>> imagesReceived_; ///< Images obtained&buffered (to sync).
   std::vector<std::map<uint64_t, cv::Mat>> depthImagesReceived_; ///> The depth images obtained and buffered (to sync)
   bool syncDepthImages_ = false;
+
+  /// @brief One raw downward-rangefinder sample, used by the altimeter windowed line fit.
+  struct AltimeterSample {
+    double t; ///< Sample time [s], relative (only differences are used).
+    double distBottom; ///< Raw distance-to-ground reading [m].
+  };
+  std::deque<AltimeterSample> altimeterWindow_; ///< Rolling window of raw samples for the line fit.
+  okvis::Time altimeterWindowEpoch_; ///< First sample's timestamp, used as the t=0 reference (numerical conditioning).
 };
 }
 

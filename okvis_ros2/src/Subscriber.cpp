@@ -19,6 +19,8 @@
  
 #include <glog/logging.h>
 #include <atomic>
+#include <algorithm>
+#include <cmath>
 #include <chrono>
 #include <okvis/ros2/Subscriber.hpp>
 #include <okvis/ros2/PointCloudUtilities.hpp>
@@ -111,6 +113,19 @@ void Subscriber::setNodeHandle(std::shared_ptr<rclcpp::Node> node,
         });
       RCLCPP_INFO(node_->get_logger(), "Subscribed to radar topic: %s (radar ID: %zu)", topic.c_str(), i);
     }
+  }
+
+  // Set up the altimeter (PX4 downward-rangefinder-derived vertical rate) subscriber
+  if(parameters_.altimeter && parameters_.altimeter->use){
+    altimeterWindow_.clear();
+    // PX4 topics are published best-effort at a high rate; a small queue is enough
+    // since the windowed fit only needs recent history, not every historical sample.
+    rclcpp::QoS px4Qos(rclcpp::KeepLast(10));
+    px4Qos.best_effort();
+    subAltimeter_ = node_->create_subscription<px4_msgs::msg::VehicleLocalPosition>(
+        "/fmu/out/vehicle_local_position", px4Qos,
+        std::bind(&Subscriber::distanceSensorCallback, this, std::placeholders::_1));
+    RCLCPP_INFO(node_->get_logger(), "Subscribed to PX4 topic: /fmu/out/vehicle_local_position for altimeter fusion");
   }
 }
 
@@ -269,6 +284,107 @@ void Subscriber::radarVelocityCallback(const geometry_msgs::msg::TwistWithCovari
   // Note: ThreadedSlam implements ViInterface which now has addRadarMeasurement method
   if(viInterface_ != nullptr) {
     viInterface_->addRadarMeasurement(radarMeas);
+  }
+}
+
+void Subscriber::distanceSensorCallback(const px4_msgs::msg::VehicleLocalPosition::SharedPtr msg)
+{
+  const okvis::AltimeterParameters & params = *parameters_.altimeter;
+
+  // PX4's `timestamp` is microseconds since boot, synchronised to the companion
+  // computer's clock by the (u)XRCE-DDS bridge -- treat it like any other epoch
+  // timestamp, the same way imuCallback/radarVelocityCallback use msg->header.stamp.
+  okvis::Time t;
+  t.fromNSec(static_cast<uint64_t>(msg->timestamp) * 1000ULL);
+
+  if(!msg->dist_bottom_valid){
+    // PX4 itself flags this reading unreliable (e.g. lost lock, out of range) --
+    // drop the whole window rather than let a fit span across the gap.
+    altimeterWindow_.clear();
+    return;
+  }
+
+  if(altimeterWindow_.empty()){
+    altimeterWindowEpoch_ = t;
+  }
+  const double sampleT = (t - altimeterWindowEpoch_).toSec();
+  altimeterWindow_.push_back({sampleT, static_cast<double>(msg->dist_bottom)});
+
+  // Trim the window: plain two-point-diff fallback when smoothing is disabled,
+  // otherwise keep only samples within the configured window (also hard-capped by maxDt).
+  const double keepSpan = params.movingAverageWindow > 0.0
+      ? std::min(params.movingAverageWindow, params.maxDt) : 0.0;
+  if(keepSpan > 0.0){
+    while(altimeterWindow_.size() > 2 && (sampleT - altimeterWindow_.front().t) > keepSpan){
+      altimeterWindow_.pop_front();
+    }
+  } else {
+    while(altimeterWindow_.size() > 2){
+      altimeterWindow_.pop_front();
+    }
+  }
+
+  if(altimeterWindow_.size() < 2){
+    return; // not enough samples yet
+  }
+
+  const double span = altimeterWindow_.back().t - altimeterWindow_.front().t;
+  if(span < params.minDt){
+    return; // window too narrow to fit reliably yet
+  }
+
+  // Ordinary least-squares line fit: distBottom(t) = a + v*t.
+  // The fitted slope v is the vertical-rate measurement (world frame, positive up --
+  // dist_bottom increases as the vehicle climbs over locally flat/unchanging ground,
+  // so no sign flip is needed). Its standard error becomes the measurement's sigma,
+  // and the fit's own RMS residual is used as an extra outlier gate: if the window
+  // no longer looks linear (e.g. something briefly passed under the sensor), the
+  // residual spikes even when the slope itself still looks plausible.
+  const size_t n = altimeterWindow_.size();
+  double sumT = 0.0, sumH = 0.0, sumTT = 0.0, sumTH = 0.0;
+  for(const auto & s : altimeterWindow_){
+    sumT += s.t;
+    sumH += s.distBottom;
+    sumTT += s.t * s.t;
+    sumTH += s.t * s.distBottom;
+  }
+  const double meanT = sumT / double(n);
+  const double meanH = sumH / double(n);
+  const double Sxx = sumTT - double(n) * meanT * meanT;
+  if(Sxx <= 1e-9){
+    return; // degenerate (near-duplicate timestamps)
+  }
+  const double Sxy = sumTH - double(n) * meanT * meanH;
+  const double slope = Sxy / Sxx;
+  const double intercept = meanH - slope * meanT;
+
+  double rss = 0.0;
+  for(const auto & s : altimeterWindow_){
+    const double residual = s.distBottom - (intercept + slope * s.t);
+    rss += residual * residual;
+  }
+  const double fitResidualRms = std::sqrt(rss / double(n));
+
+  if(fitResidualRms > params.maxFitResidual){
+    return; // window doesn't look linear anymore -- likely something under the sensor
+  }
+  if(std::fabs(slope) > params.maxVerticalSpeed){
+    return; // implausible vertical speed -- reject
+  }
+
+  double slopeVariance = 1e-6; // floor, avoids a zero/negative sigma with n==2 (rss==0)
+  if(n > 2){
+    const double sigmaSq = rss / double(n - 2);
+    slopeVariance = std::max(slopeVariance, sigmaSq / Sxx);
+  }
+
+  okvis::AltimeterMeasurement altimeterMeas;
+  altimeterMeas.timeStamp = t;
+  altimeterMeas.measurement = okvis::AltimeterSensorReadings(
+      slope, slopeVariance, altimeterWindow_.back().distBottom, true);
+
+  if(viInterface_ != nullptr) {
+    viInterface_->addAltimeterMeasurement(altimeterMeas);
   }
 }
 

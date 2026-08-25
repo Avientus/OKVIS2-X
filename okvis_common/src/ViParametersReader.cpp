@@ -392,6 +392,24 @@ void ViParametersReader::readConfigFile(const std::string& filename) {
     LOG(INFO) << "No radars declared";
   }
 
+  // Altimeter Parameters
+  if(file["altimeter_parameters"].isMap()){
+    viParameters_.altimeter = okvis::AltimeterParameters();
+    if(!getAltimeterCalibration(file["altimeter_parameters"], *viParameters_.altimeter)){
+      LOG(ERROR) << "Could not parse the altimeter config";
+    } else {
+      LOG(INFO) << "Parsed altimeter with the following characteristics: \n"
+                << "\tuse: " << std::boolalpha << (*viParameters_.altimeter).use << " \n"
+                << "\tmoving_average_window: " << (*viParameters_.altimeter).movingAverageWindow << " \n"
+                << "\tmax_vertical_speed: " << (*viParameters_.altimeter).maxVerticalSpeed << " \n"
+                << "\tmax_fit_residual: " << (*viParameters_.altimeter).maxFitResidual << " \n"
+                << "\tmin_dt: " << (*viParameters_.altimeter).minDt << " \n"
+                << "\tmax_dt: " << (*viParameters_.altimeter).maxDt;
+    }
+  } else {
+    LOG(INFO) << "No altimeter declared";
+  }
+
   // done!
   readConfigFile_ = true;
 }
@@ -678,6 +696,24 @@ bool ViParametersReader::getRadarCalibration(const cv::FileNode& calibrationNode
           T_IR_node[8], T_IR_node[9], T_IR_node[10], T_IR_node[11],
           T_IR_node[12], T_IR_node[13], T_IR_node[14], T_IR_node[15];
   radarParameters.T_IR = okvis::kinematics::Transformation(T_IR);
+
+  return true;
+}
+
+bool ViParametersReader::getAltimeterCalibration(const cv::FileNode& calibrationNode, okvis::AltimeterParameters& altimeterParameters){
+
+  parseEntry(calibrationNode, "use",
+             altimeterParameters.use);
+  parseEntry(calibrationNode, "moving_average_window",
+             altimeterParameters.movingAverageWindow);
+  parseEntry(calibrationNode, "max_vertical_speed",
+             altimeterParameters.maxVerticalSpeed);
+  parseEntry(calibrationNode, "max_fit_residual",
+             altimeterParameters.maxFitResidual);
+  parseEntry(calibrationNode, "min_dt",
+             altimeterParameters.minDt);
+  parseEntry(calibrationNode, "max_dt",
+             altimeterParameters.maxDt);
 
   return true;
 }

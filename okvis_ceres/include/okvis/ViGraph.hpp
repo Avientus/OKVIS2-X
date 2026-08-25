@@ -59,6 +59,7 @@
 #include <okvis/ceres/CeresIterationCallback.hpp>
 #include <okvis/ceres/GpsErrorAsynchronous.hpp>
 #include <okvis/ceres/RadarErrorAsynchronous.hpp>
+#include <okvis/ceres/AltimeterErrorAsynchronous.hpp>
 #include <okvis/ceres/SubmapIcpError.hpp>
 
 #include <GeographicLib/Geocentric.hpp>
@@ -127,6 +128,14 @@ class ViGraph
    * @return index of radar.
    */
   int addRadar(const okvis::RadarParameters & radarParameters);
+
+  /**
+   * @brief Add an altimeter sensor to the configuration.
+   * @warning Currently there is only one altimeter supported.
+   * @param altimeterParameters The altimeter sensor parameters.
+   * @return index of the altimeter.
+   */
+  int addAltimeter(const okvis::AltimeterParameters & altimeterParameters);
 
   // add states
   /**
@@ -454,6 +463,28 @@ class ViGraph
   /// \param[out] sids State IDs of states that the radar measurements are assigned to (optional)
   /// \return True on success
   bool addRadarMeasurements(const RadarMeasurementDeque& radarMeasurementDeque, const ImuMeasurementDeque& imuMeasurementDeque, std::deque<StateId>* sids = nullptr);
+
+  /// \brief Add an altimeter (rangefinder-derived vertical rate) measurement to one pose of the graph.
+  /// \param poseId ID of the pose whose vertical velocity is measured
+  /// \param altimeterMeas the altimeter measurement to be added (vertical rate, variance, timestamp)
+  /// \param imuMeasurements IMU measurements covering at least time span from state timestamp to measurement timestamp
+  /// \return True on success
+  bool addAltimeterMeasurement(StateId poseId, const AltimeterMeasurement &altimeterMeas, const ImuMeasurementDeque &imuMeasurements);
+
+  /// \brief Add multiple altimeter measurements, automatically matching them to states by timestamp.
+  /// \param altimeterMeasurementDeque Queue of altimeter measurements (timeStamp must be set for each)
+  /// \param imuMeasurementDeque Queue of IMU measurements
+  /// \param[out] sids State IDs of states that the altimeter measurements are assigned to (optional)
+  /// \return True on success
+  bool addAltimeterMeasurements(const AltimeterMeasurementDeque& altimeterMeasurementDeque, const ImuMeasurementDeque& imuMeasurementDeque, std::deque<StateId>* sids = nullptr);
+
+  /// \brief Filter out altimeter measurements flagged invalid (e.g. PX4 dist_bottom_valid==false)
+  ///        or with non-positive variance. Fine-grained plausibility gating (max vertical speed,
+  ///        line-fit residual) already happens upstream on the ROS side before this point.
+  /// \param inputAltimeterMeasurementDeque Input altimeter measurements
+  /// \param altimeterMeasurementDeque Output: filtered altimeter measurements
+  /// \return Number of valid altimeter measurements
+  int checkValidAltimeterMeasurements(const AltimeterMeasurementDeque& inputAltimeterMeasurementDeque, AltimeterMeasurementDeque& altimeterMeasurementDeque);
 
   /// \brief Check which of the GPS Measurements are actually valid (consistent with the estimator based on 3-sigma bound (initialised) or a drift heuristic (re-initialising))
   /// \param inputGpsMeasurementDeque Input GPS Measurements
@@ -805,6 +836,9 @@ protected:
   /// \brief Radar factor pose graph edge.
   using RadarFactor = GraphEdge<ceres::RadarErrorAsynchronous>;
 
+  /// \brief Altimeter factor pose graph edge.
+  using AltimeterFactor = GraphEdge<ceres::AltimeterErrorAsynchronous>;
+
   /// \brief
   using SubmapAlignmentFactor = GraphEdge<ceres::SubmapIcpError>;
 
@@ -832,6 +866,7 @@ protected:
     std::map<StateId, RelativePoseLink> relativePoseLinks; ///< All relative pose graph edges.
     std::vector<GpsFactor> GpsFactors; ///< All GPS factors
     std::vector<RadarFactor> RadarFactors; ///< All radar factors
+    std::vector<AltimeterFactor> AltimeterFactors; ///< All altimeter factors
     // ToDo: how to store  submap alignment factors for two states
     std::vector<::ceres::ResidualBlockId> mapResIds;
     std::vector<SubmapAlignmentFactor> submapReferenceLinks;
@@ -861,6 +896,7 @@ protected:
       Eigen::aligned_allocator<okvis::GpsParameters> > gpsParametersVec_; ///< GPS parameters
   std::vector<okvis::RadarParameters,
       Eigen::aligned_allocator<okvis::RadarParameters> > radarParametersVec_; ///< Radar parameters
+  std::vector<okvis::AltimeterParameters> altimeterParametersVec_; ///< Altimeter parameters (single-slot).
 
   // this stores the elements of the graph (note the redundancy for spee in the states)
   std::map<StateId, State> states_; ///< Store all states.
@@ -911,6 +947,7 @@ protected:
   std::shared_ptr< ::ceres::LossFunction> cauchyLossFunctionPtr_; ///< Cauchy loss.
   std::shared_ptr< ::ceres::LossFunction> cauchyGpsLossFunctionPtr_; ///< Cauchy loss for GPS.
   std::shared_ptr< ::ceres::LossFunction> cauchyRadarLossFunctionPtr_; ///< Cauchy loss for radar.
+  std::shared_ptr< ::ceres::LossFunction> cauchyAltimeterLossFunctionPtr_; ///< Cauchy loss for altimeter.
   std::shared_ptr< ::ceres::LossFunction> huberLossFunctionPtr_; ///< Huber loss.
   std::shared_ptr< ::ceres::LossFunction> tukeyDepthLossFunctionPtr_; ///< Tukey loss for Depth.
   std::shared_ptr< ::ceres::LossFunction> tukeyLidarLossFunctionPtr_; ///< Tukey loss for LiDAR.

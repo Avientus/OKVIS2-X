@@ -36,6 +36,7 @@ add_library(${LIB_NAME}
   include/okvis/ceres/SpeedAndBiasParameterBlock.hpp
   include/okvis/ceres/RadarErrorSynchronous.hpp
   include/okvis/ceres/RadarErrorAsynchronous.hpp
+  include/okvis/ceres/AltimeterErrorAsynchronous.hpp
   include/okvis/ceres/TwoPoseGraphError.hpp
   include/okvis/ceres/TwoPoseExtrinsicsGraphError.hpp
   include/okvis/ceres/implementation/ReprojectionError.hpp
@@ -47,6 +48,7 @@ add_library(${LIB_NAME}
   src/GpsErrorSynchronous.cpp
   src/RadarErrorSynchronous.cpp
   src/RadarErrorAsynchronous.cpp
+  src/AltimeterErrorAsynchronous.cpp
   src/HomogeneousPointError.cpp
   src/HomogeneousPointLocalParameterization.cpp
   src/HomogeneousPointParameterBlock.cpp
@@ -122,6 +124,7 @@ if(BUILD_TESTS)
     test/TestPoseError.cpp
     test/TestRadarErrorSynchronous.cpp
     test/TestRadarErrorAsynchronous.cpp
+    test/TestAltimeterErrorAsynchronous.cpp
     test/TestReprojectionError.cpp
     test/TestSubmapIcpError.cpp
     test/test_main.cpp

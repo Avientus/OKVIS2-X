@@ -408,6 +408,7 @@ if(BUILD_ROS2)
   find_package(tf2_ros REQUIRED)
   find_package(image_transport REQUIRED)
   find_package(message_filters REQUIRED)
+  find_package(px4_msgs REQUIRED)
 
   # incldues and lib directories
   include_directories(${OpenCV_INCLUDE_DIRS})
@@ -484,6 +485,7 @@ if(BUILD_ROS2)
     tf2_ros
     tf2_eigen
     tf2_geometry_msgs
+    px4_msgs
   )
 
   # export dependencies
@@ -505,6 +507,7 @@ if(BUILD_ROS2)
     message_filters
     cv_bridge
     image_transport
+    px4_msgs
     tf2
     tf2_ros
   )

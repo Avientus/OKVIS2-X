@@ -186,6 +186,30 @@ struct RadarParameters {
 };
 
 
+/**
+ * @brief Struct to specify parameters of the (downward-rangefinder-derived) altimeter.
+ *
+ * The altimeter does not fuse an absolute height. Instead, a least-squares slope
+ * (vertical rate) is fitted through a window of raw distance-to-ground samples on
+ * the ROS side, and that vertical rate is fused as a single-state, IMU-propagated
+ * velocity factor -- this needs no known ground level or sensor lever arm, and only
+ * corrects long-term vertical drift rather than absolute altitude.
+ */
+struct AltimeterParameters {
+    bool use; ///< Whether the altimeter factor is enabled.
+    double movingAverageWindow; ///< Window length [s] for the vertical-rate line fit. 0 = plain two-point diff.
+    double maxVerticalSpeed; ///< Gate: reject a fitted vertical rate exceeding this magnitude [m/s].
+    double maxFitResidual; ///< Gate: reject the window if the line-fit RMS residual exceeds this [m].
+    double minDt; ///< Minimum time span [s] the window must cover before fitting.
+    double maxDt; ///< Maximum time span [s] a window may cover (older samples are dropped).
+
+    /// Default Constructor (no altimeter)
+    AltimeterParameters() : use(false), movingAverageWindow(1.0),
+                            maxVerticalSpeed(5.0), maxFitResidual(0.15),
+                            minDt(0.2), maxDt(3.0)
+                            {}
+};
+
 /// @brief Struct to combine all parameters and settings.
 struct ViParameters {
   EIGEN_MAKE_ALIGNED_OPERATOR_NEW
@@ -195,6 +219,7 @@ struct ViParameters {
   std::optional<GpsParameters> gps; ///< Gps parameters.
   std::optional<LidarParameters> lidar; ///< LiDAR parameters
   std::vector<RadarParameters> radars; ///< Radar parameters (supports multiple radars)
+  std::optional<AltimeterParameters> altimeter; ///< Altimeter (rangefinder vertical-rate) parameters.
   FrontendParameters frontend; ///< Frontend parameters.
   EstimatorParameters estimator; ///< Estimator parameters.
   OutputParameters output; ///< Output parameters.

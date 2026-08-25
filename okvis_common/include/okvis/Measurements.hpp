@@ -288,6 +288,38 @@ struct RadarSensorReadings {
 typedef Measurement<RadarSensorReadings> RadarMeasurement;
 typedef std::deque<RadarMeasurement, Eigen::aligned_allocator<RadarMeasurement> > RadarMeasurementDeque;
 
+/// \brief Altimeter (downward rangefinder-derived vertical rate) measurements.
+struct AltimeterSensorReadings {
+  /// \brief Default constructor.
+  AltimeterSensorReadings()
+      : verticalVelocity(0.0),
+        variance(0.0),
+        rawDistBottom(0.0),
+        valid(false) {
+  }
+  /**
+   * @brief Constructor from vertical velocity and variance.
+   * @param verticalVelocity_ Vertical velocity measurement (world frame, positive up) [m/s].
+   * @param variance_ Variance of the vertical velocity measurement [(m/s)^2].
+   * @param rawDistBottom_ The raw (unsmoothed) distance-to-ground reading this was derived from [m].
+   * @param valid_ Whether the underlying distance sensor reading(s) were flagged valid.
+   */
+  AltimeterSensorReadings(double verticalVelocity_, double variance_,
+                          double rawDistBottom_ = 0.0, bool valid_ = true)
+      : verticalVelocity(verticalVelocity_),
+        variance(variance_),
+        rawDistBottom(rawDistBottom_),
+        valid(valid_) {
+  }
+
+  double verticalVelocity; ///< Vertical velocity measurement (world frame, positive up) [m/s].
+  double variance; ///< Variance of the vertical velocity measurement [(m/s)^2].
+  double rawDistBottom; ///< Raw distance-to-ground reading this was derived from [m] (for logging/debug).
+  bool valid; ///< Whether the underlying distance sensor reading(s) were flagged valid.
+};
+typedef Measurement<AltimeterSensorReadings> AltimeterMeasurement;
+typedef std::deque<AltimeterMeasurement, Eigen::aligned_allocator<AltimeterMeasurement> > AltimeterMeasurementDeque;
+
 }  // namespace okvis
 
 #endif // INCLUDE_OKVIS_MEASUREMENTS_HPP_

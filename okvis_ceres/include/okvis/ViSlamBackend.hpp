@@ -99,6 +99,14 @@ class ViSlamBackend //: public VioBackendInterface
    */
   int addRadar(const okvis::RadarParameters & radarParameters);
 
+  /**
+   * @brief Add an altimeter sensor to the configuration.
+   * @warning Currently there is only one altimeter supported.
+   * @param altimeterParameters The altimeter sensor parameters.
+   * @return index of the altimeter.
+   */
+  int addAltimeter(const okvis::AltimeterParameters & altimeterParameters);
+
 
   /**
    * @brief Add a pose to the state.
@@ -633,6 +641,12 @@ class ViSlamBackend //: public VioBackendInterface
   /// \param imuMeasurementDeque Queue containing a sequence of IMU measurements
   /// \return True on success
   bool addRadarMeasurementsOnAllGraphs(const RadarMeasurementDeque& radarMeasurementDeque, const ImuMeasurementDeque& imuMeasurementDeque);
+
+  /// \brief Add altimeter (rangefinder-derived vertical rate) constraints on all Graph members.
+  /// \param altimeterMeasurementDeque Queue containing a sequence of altimeter measurements
+  /// \param imuMeasurementDeque Queue containing a sequence of IMU measurements
+  /// \return True on success
+  bool addAltimeterMeasurementsOnAllGraphs(const AltimeterMeasurementDeque& altimeterMeasurementDeque, const ImuMeasurementDeque& imuMeasurementDeque);
 
   /// \brief Check for (and if needed apply) available alignments due to GPS signals
   /// \return True if alignment has been applied, false if not

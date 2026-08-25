@@ -93,6 +93,9 @@ void ThreadedSlam::init()
   for (size_t i = 0; i < parameters_.radars.size(); ++i) {
     estimator_.addRadar(parameters_.radars[i]);
   }
+  if(parameters_.altimeter && parameters_.altimeter->use){
+    estimator_.addAltimeter(*parameters_.altimeter);
+  }
   estimator_.setDetectorUniformityRadius(parameters_.frontend.detection_threshold);
 
   // time limit if requested
@@ -425,6 +428,27 @@ bool ThreadedSlam::addRadarMeasurement(const okvis::RadarMeasurement& radarMeas)
 
 }
 
+// Add an altimeter measurement.
+bool ThreadedSlam::addAltimeterMeasurement(const okvis::AltimeterMeasurement& altimeterMeas)
+{
+  const int altimeterQueueSize = 100;
+
+  if (blocking_)
+  {
+    return altimeterMeasurementsReceived_.PushBlockingIfFull(altimeterMeas, size_t(altimeterQueueSize));
+  }
+  else
+  {
+    if(altimeterMeasurementsReceived_.PushNonBlockingDroppingIfFull(altimeterMeas, size_t(altimeterQueueSize))) {
+      LOG(WARNING) << "altimeter measurement drop ";
+      return false;
+    }
+
+    return true;
+  }
+
+}
+
 // Add Submap alignment constraints to estimator
 bool ThreadedSlam::addSubmapAlignmentConstraints(const SupereightMapType* submap_A_ptr,
                                                  const SupereightMapType* submap_B_ptr,
@@ -477,6 +501,7 @@ bool ThreadedSlam::processFrame() {
   LidarMeasurement lidarMeasurement;
   GpsMeasurement gpsMeasurement;
   RadarMeasurement radarMeasurement;
+  AltimeterMeasurement altimeterMeasurement;
   CameraMeasurement depthMeasurement;
   const size_t numCameras = parameters_.nCameraSystem.numCameras();
 
@@ -539,6 +564,11 @@ bool ThreadedSlam::processFrame() {
     // Drop Radar Measurements that are older than the first frame
     while(!radarMeasurementsReceived_.Empty() && radarMeasurementsReceived_.queue_.front().timeStamp < multiFrame->timestamp()){
       radarMeasurementsReceived_.PopBlocking(&radarMeasurement);
+    }
+
+    // Drop Altimeter Measurements that are older than the first frame
+    while(!altimeterMeasurementsReceived_.Empty() && altimeterMeasurementsReceived_.queue_.front().timeStamp < multiFrame->timestamp()){
+      altimeterMeasurementsReceived_.PopBlocking(&altimeterMeasurement);
     }
 
     firstFrame_ = false;
@@ -661,6 +691,15 @@ bool ThreadedSlam::processFrame() {
       {
         radarMeasurementDeque_.push_back(radarMeasurement);
         }
+    }
+
+    // now also get all relevant altimeter measurements received thus far
+    while(!shutdown_ && !altimeterMeasurementsReceived_.Empty() && altimeterMeasurementsReceived_.queue_.front().timeStamp < multiFrame->timestamp())
+    {
+      if(altimeterMeasurementsReceived_.PopBlocking(&altimeterMeasurement))
+      {
+        altimeterMeasurementDeque_.push_back(altimeterMeasurement);
+      }
     }
 
     // now also get all relevant LiDAR measurements received thus far
@@ -877,6 +916,9 @@ bool ThreadedSlam::processFrame() {
   // Add Radar Measurements
   estimator_.addRadarMeasurementsOnAllGraphs(radarMeasurementDeque_, imuMeasurementDeque_);
 
+  // Add Altimeter Measurements
+  estimator_.addAltimeterMeasurementsOnAllGraphs(altimeterMeasurementDeque_, imuMeasurementDeque_);
+
   // remove gpsMeasurements from deque
   while(!shutdown_ && !gpsMeasurementDeque_.empty() && gpsMeasurementDeque_.front().timeStamp < multiFrame->timestamp() )
   {
@@ -887,6 +929,12 @@ bool ThreadedSlam::processFrame() {
   while(!shutdown_ && !radarMeasurementDeque_.empty() && radarMeasurementDeque_.front().timeStamp < multiFrame->timestamp() )
   {
     radarMeasurementDeque_.pop_front();
+  }
+
+  // remove altimeterMeasurements from deque
+  while(!shutdown_ && !altimeterMeasurementDeque_.empty() && altimeterMeasurementDeque_.front().timeStamp < multiFrame->timestamp() )
+  {
+    altimeterMeasurementDeque_.pop_front();
   }
 
   // remove lidarMeasurements from deque
@@ -1355,6 +1403,7 @@ void ThreadedSlam::stopThreading() {
   cameraMeasurementsReceived_.Shutdown();
   gpsMeasurementsReceived_.Shutdown();
   radarMeasurementsReceived_.Shutdown();
+  altimeterMeasurementsReceived_.Shutdown();
   lidarMeasurementsReceived_.Shutdown();
   submapAlignmentFactorsReceived_.Shutdown();
   visualisationImages_.Shutdown();

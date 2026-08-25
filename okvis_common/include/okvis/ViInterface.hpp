@@ -435,6 +435,13 @@ class ViInterface
    * \return Returns true normally. False if the previous one has not been processed yet.
    */
   virtual bool addRadarMeasurement(const okvis::RadarMeasurement& radarMeas) = 0;
+
+  /**
+   * \brief          Add an altimeter (rangefinder-derived vertical rate) measurement.
+   * \param altimeterMeas The altimeter measurement to be added.
+   * \return Returns true normally. False if the previous one has not been processed yet.
+   */
+  virtual bool addAltimeterMeasurement(const okvis::AltimeterMeasurement& altimeterMeas) = 0;
   /// \}
   /// \name Setters
   /// \{

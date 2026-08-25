@@ -61,6 +61,12 @@ int ViSlamBackend::addRadar(const RadarParameters &radarParameters)
   return realtimeGraph_.addRadar(radarParameters);
 }
 
+int ViSlamBackend::addAltimeter(const AltimeterParameters &altimeterParameters)
+{
+  fullGraph_.addAltimeter(altimeterParameters);
+  return realtimeGraph_.addAltimeter(altimeterParameters);
+}
+
 bool ViSlamBackend::addRadarMeasurementsOnAllGraphs(const RadarMeasurementDeque& radarMeasurementDeque, const ImuMeasurementDeque& imuMeasurementDeque){
   if(realtimeGraph_.radarParametersVec_.empty()) {
     return false;
@@ -142,6 +148,37 @@ bool ViSlamBackend::addRadarMeasurementsOnAllGraphs(const RadarMeasurementDeque&
   else{
     return false; // no measurements could have been added to the graph
   }
+}
+
+bool ViSlamBackend::addAltimeterMeasurementsOnAllGraphs(const AltimeterMeasurementDeque& inputAltimeterMeasurementDeque, const ImuMeasurementDeque& imuMeasurementDeque){
+  if(realtimeGraph_.altimeterParametersVec_.empty()) {
+    return false;
+  }
+
+  AltimeterMeasurementDeque altimeterMeasurementDeque;
+  if(realtimeGraph_.checkValidAltimeterMeasurements(
+      inputAltimeterMeasurementDeque, altimeterMeasurementDeque) == 0){
+    return false; // nothing valid to add
+  }
+
+  // Add altimeter measurements to the realtime graph -- this is the graph that
+  // actually drives the live/published trajectory, so it always gets the factor.
+  if(!realtimeGraph_.addAltimeterMeasurements(altimeterMeasurementDeque, imuMeasurementDeque, nullptr)) {
+    LOG(ERROR) << "Failed to add altimeter measurements to realtime graph";
+    return false;
+  }
+
+  // Unlike GPS/Radar, the altimeter factor carries no external-frame alignment
+  // implications, so -- unlike GPS -- we don't bother buffering/replaying it onto
+  // fullGraph_ during a loop-closing window; simply skip it there (the next,
+  // non-loop-closing cycle will add subsequent measurements normally).
+  if(!isLoopClosing_ && !isLoopClosureAvailable_){
+    if(!fullGraph_.addAltimeterMeasurements(altimeterMeasurementDeque, imuMeasurementDeque, nullptr)) {
+      LOG(WARNING) << "Failed to add altimeter measurements to full graph";
+    }
+  }
+
+  return true;
 }
 
 bool ViSlamBackend::addGpsMeasurementsOnAllGraphs(GpsMeasurementDeque& inputgpsMeasurementDeque, ImuMeasurementDeque& imuMeasurementDeque){

@@ -185,4 +185,8 @@ bool Processor::addRadarMeasurement(const okvis::RadarMeasurement& radarMeas) {
   return slam_.addRadarMeasurement(radarMeas);
 }
 
+bool Processor::addAltimeterMeasurement(const okvis::AltimeterMeasurement& altimeterMeas) {
+  return slam_.addAltimeterMeasurement(altimeterMeas);
+}
+
 }

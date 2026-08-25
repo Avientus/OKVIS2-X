@@ -128,6 +128,13 @@ public:
    */
   virtual bool addRadarMeasurement(const okvis::RadarMeasurement& radarMeas) final;
 
+  /**
+   * \brief          Add an altimeter (rangefinder-derived vertical rate) measurement.
+   * \param altimeterMeas The altimeter measurement to be added.
+   * \return Returns true normally. False if the previous one has not been processed yet.
+   */
+  virtual bool addAltimeterMeasurement(const okvis::AltimeterMeasurement& altimeterMeas) final;
+
   /// @brief Set function that handles submaps visualization (blocks version).
   void setSubmapCallback(const okvis::submapCallback &callback);
 

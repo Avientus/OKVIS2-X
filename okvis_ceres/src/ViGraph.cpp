@@ -235,6 +235,7 @@ ViGraph::ViGraph() : globCartesianFrame_(earth_)
   cauchyLossFunctionPtr_.reset(new ::ceres::CauchyLoss(1.0));
   cauchyGpsLossFunctionPtr_.reset(new ::ceres::CauchyLoss(3.0));
   cauchyRadarLossFunctionPtr_.reset(new ::ceres::CauchyLoss(3.0));
+  cauchyAltimeterLossFunctionPtr_.reset(new ::ceres::CauchyLoss(3.0));
   tukeyDepthLossFunctionPtr_.reset(new ::ceres::TukeyLoss(0.1));
   tukeyLidarLossFunctionPtr_.reset(new ::ceres::TukeyLoss(2.0));
   ::ceres::Problem::Options problemOptions;
@@ -280,6 +281,16 @@ int ViGraph::addGps(const GpsParameters& gpsParameters) {
 int ViGraph::addRadar(const RadarParameters& radarParameters) {
   radarParametersVec_.push_back(radarParameters);
   return static_cast<int>(radarParametersVec_.size()) - 1;
+}
+
+// Add an altimeter sensor to the configuration.
+int ViGraph::addAltimeter(const AltimeterParameters& altimeterParameters) {
+  if (altimeterParametersVec_.size() > 1) {
+    LOG(ERROR) << "only one altimeter currently supported";
+    return -1;
+  }
+  altimeterParametersVec_.push_back(altimeterParameters);
+  return static_cast<int>(altimeterParametersVec_.size()) - 1;
 }
 
 StateId ViGraph::addStatesInitialise(
@@ -494,6 +505,7 @@ StateId ViGraph::addStatesPropagate(const Time &timestamp,
   state.T_GW = lastState.T_GW;
   state.GpsFactors.clear();
   state.RadarFactors.clear();
+  state.AltimeterFactors.clear();
   states_[id] = state; // actually add...
   AnyState anyState;
   anyState.timestamp = state.timestamp;
@@ -1192,6 +1204,145 @@ bool ViGraph::addRadarMeasurements(const RadarMeasurementDeque& radarMeasurement
 
     return true;
 
+}
+
+bool ViGraph::addAltimeterMeasurement(StateId poseId, const AltimeterMeasurement &altimeterMeas, const ImuMeasurementDeque &imuMeasurements){
+
+    OKVIS_ASSERT_TRUE(Exception, states_.count(poseId), "stateId " << poseId.value() << " not found")
+    OKVIS_ASSERT_TRUE(Exception, (altimeterMeas.timeStamp >= states_.at(poseId).timestamp), "Altimeter measurement too old to add to state" )
+
+    // Validate IMU measurements span the time interval
+    if(!(imuMeasurements.front().timeStamp <= states_.at(poseId).timestamp)){
+      LOG(WARNING) << "IMU Measurements for adding altimeter error are not old enough" << std::endl;
+      return false;
+    }
+    OKVIS_ASSERT_TRUE(Exception, (imuMeasurements.back().timeStamp >= altimeterMeas.timeStamp), "IMU measurements do not cover altimeter measurement");
+
+    if(altimeterMeas.measurement.variance <= 0.0){
+      LOG(WARNING) << "Altimeter measurement has non-positive variance, skipping";
+      return false;
+    }
+
+    State & state = states_.at(poseId); // Obtain reference to state
+    AltimeterFactor newAltimeterFactor; // Create new altimeter error term
+
+    // Create error term: AltimeterErrorAsynchronous(measurement, information, imuMeasurements, imuParameters, tk, tr)
+    // tk = state.timestamp (state time), tr = altimeterMeas.timeStamp (altimeter measurement time)
+    newAltimeterFactor.errorTerm.reset(new ceres::AltimeterErrorAsynchronous(
+        altimeterMeas.measurement.verticalVelocity,
+        1.0 / altimeterMeas.measurement.variance,
+        imuMeasurements,
+        imuParametersVec_.back(),
+        state.timestamp,  // tk: state timestamp
+        altimeterMeas.timeStamp));  // tr: altimeter measurement timestamp
+
+    // Add residual block to ceres problem
+    // Altimeter error depends on: pose (T_WS) and speedAndBias (v_W, b_g, b_a)
+    newAltimeterFactor.residualBlockId = problem_->AddResidualBlock(
+        newAltimeterFactor.errorTerm.get(),
+        cauchyAltimeterLossFunctionPtr_.get(),
+        state.pose->parameters(),
+        state.speedAndBias->parameters());
+
+    state.AltimeterFactors.push_back(newAltimeterFactor);
+
+    return true;
+
+}
+
+bool ViGraph::addAltimeterMeasurements(const AltimeterMeasurementDeque& altimeterMeasurementDeque, const ImuMeasurementDeque& imuMeasurementDeque, std::deque<StateId>* sids){
+
+  if(altimeterMeasurementDeque.size() == 0){
+    LOG(ERROR) << "No altimeter measurements available";
+    return false;
+  }
+
+  if(imuMeasurementDeque.size() == 0){
+    LOG(ERROR) << "No IMU measurements available for altimeter measurements";
+    return false;
+  }
+
+  // Make sure IMU measurements cover the altimeter measurement time span
+  if(!(imuMeasurementDeque.front().timeStamp <= altimeterMeasurementDeque.front().timeStamp)){
+    LOG(ERROR) << "IMU measurements not old enough for altimeter measurement. Can happen in beginning.";
+    return false;
+  }
+
+  if(!(imuMeasurementDeque.back().timeStamp >= altimeterMeasurementDeque.back().timeStamp)){
+    LOG(ERROR) << "IMU measurements do not cover all altimeter measurements";
+    return false;
+  }
+
+  StateId sid; // IDs of states that altimeter measurements are added to
+  if(sids != nullptr) {
+    sids->clear();
+  }
+
+  // Iterator to traverse states backwards (newest first)
+  auto rIterStates = states_.rbegin();
+
+  // Reverse iterate measurements (newest first) to match with states
+  for(auto rIterMeas = altimeterMeasurementDeque.rbegin(); rIterMeas != altimeterMeasurementDeque.rend(); rIterMeas++){
+
+    // Push placeholder early to maintain 1:1 alignment with altimeterMeasurementDeque
+    // It will remain uninitialized if measurement cannot be added
+    if(sids != nullptr)
+      sids->push_front(StateId());
+
+    // Find the state with timestamp <= measurement timestamp (match to closest/newest state)
+    while(rIterStates != states_.rend() && rIterStates->second.timestamp > rIterMeas->timeStamp){
+      rIterStates++;
+    }
+
+    // If state iterator comes to begin, measurement cannot be added
+    // states_.rend = one past the oldest state
+    if(rIterStates == states_.rend()){
+      LOG(WARNING) << "No state found for altimeter measurement at timestamp " << rIterMeas->timeStamp;
+      continue;
+    }
+
+    // State ID determined where altimeter measurement should be added
+    sid = rIterStates->first;
+
+    okvis::Time stateTimestamp = rIterStates->second.timestamp;
+
+    // Check IMU coverage for state timestamp (state could be older than oldest altimeter measurement)
+    if(!(imuMeasurementDeque.front().timeStamp <= stateTimestamp)){
+      LOG(WARNING) << "IMU Measurements for adding altimeter error dont cover last state timestamp" << std::endl;
+      continue;
+    }
+
+    // Add the altimeter measurement to the matched state
+    // Pass full IMU deque - AltimeterErrorAsynchronous filters internally (similar to GPS/Radar)
+    if(!addAltimeterMeasurement(sid, *rIterMeas, imuMeasurementDeque)){
+      LOG(ERROR) << "Failed to add altimeter measurement at timestamp " << rIterMeas->timeStamp;
+      continue;
+    }
+    // Mark this measurement as successfully added.
+    if(sids != nullptr) {
+      sids->front() = sid;  // Fill in the placerholder
+    }
+  }
+
+    return true;
+
+}
+
+int ViGraph::checkValidAltimeterMeasurements(const AltimeterMeasurementDeque& inputAltimeterMeasurementDeque, AltimeterMeasurementDeque& altimeterMeasurementDeque){
+  altimeterMeasurementDeque.clear();
+  int numValid = 0;
+  for(const auto & meas : inputAltimeterMeasurementDeque){
+    // Fine-grained plausibility gating (max vertical speed, line-fit residual, min/max dt)
+    // already happened upstream on the ROS side. Here we just drop anything flagged
+    // invalid (e.g. PX4 dist_bottom_valid==false during the underlying window) or
+    // with a non-positive variance.
+    if(!meas.measurement.valid || meas.measurement.variance <= 0.0){
+      continue;
+    }
+    altimeterMeasurementDeque.push_back(meas);
+    ++numValid;
+  }
+  return numValid;
 }
 
 void ViGraph::gpsMeasurements(StateId stateId, AlignedVector<Eigen::Vector3d>& gpsMeasurements){

@@ -191,6 +191,14 @@ class ViParametersReader{
    */
   bool getRadarCalibration(const cv::FileNode& calibrationNode, okvis::RadarParameters& radarParameters);
 
+  /**
+   * @brief Get the altimeter calibration via the configuration file
+   * @param[in] calibrationNode File node pointing to the altimeter parameters.
+   * @param[out] altimeterParameters Read altimeter calibration.
+   * @return True if reading and parsing of calibration was successful.
+   */
+  bool getAltimeterCalibration(const cv::FileNode& calibrationNode, okvis::AltimeterParameters& altimeterParameters);
+
 };
 
 }
