@@ -759,12 +759,12 @@ void Publisher::updateOdomFrameAfterLoopClosure(
     Eigen::AngleAxisd angleAxis(T_odom_world_.q());
     const double odomDriftRotation = std::abs(angleAxis.angle()) * 180.0 / M_PI; // Convert to degrees
     
-    LOG(INFO) << "=== Loop closure detected (from SLAM)! Odom frame updated ===";
-    LOG(INFO) << "  World frame correction: " << translationChange << " m";
-    LOG(INFO) << "  Current odom-world drift:";
-    LOG(INFO) << "    Translation: " << odomDriftTranslation << " m [" 
+    VLOG(1) << "=== Loop closure detected (from SLAM)! Odom frame updated ===";
+    VLOG(1) << "  World frame correction: " << translationChange << " m";
+    VLOG(1) << "  Current odom-world drift:";
+    VLOG(1) << "    Translation: " << odomDriftTranslation << " m ["
               << r_odom_world.x() << ", " << r_odom_world.y() << ", " << r_odom_world.z() << "]";
-    LOG(INFO) << "    Rotation: " << odomDriftRotation << " deg";
+    VLOG(1) << "    Rotation: " << odomDriftRotation << " deg";
     
     lastWorldPose_ = currentWorldPose;
     lastWorldPoseTime_ = currentTime;
@@ -792,7 +792,7 @@ void Publisher::updateOdomFrameAfterLoopClosure(
   const double maxExpectedSpeed = 5.0; // m/s
   if (estimatedSpeed > maxExpectedSpeed && translationChange > 0.05) {
     T_odom_world_ = T_odom_world_ * T_world_old_world_new;
-    LOG(WARNING) << "Loop closure detected (heuristic fallback)! Updated odom frame. "
+    VLOG(1) << "Loop closure detected (heuristic fallback)! Updated odom frame. "
                  << "Speed: " << estimatedSpeed << " m/s, "
                  << "Translation: " << translationChange << " m";
   }

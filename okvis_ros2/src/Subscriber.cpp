@@ -357,17 +357,17 @@ void Subscriber::synchronizeData() {
           if (now_ns - last_ns >= kFrameDropLogThrottleNs &&
               last_drop_log_ns.compare_exchange_strong(
                   last_ns, now_ns, std::memory_order_relaxed)) {
-            LOG(WARNING) << "Frame not added to Processor at t="
-                         << timestampedImages.at(0).first;
+            VLOG(1) << "Frame not added to Processor at t="
+                    << timestampedImages.at(0).first;
           }
         }
       }
       else if(!viInterface_->addImages(tcheck, images, depthImages)) {
-        LOG_EVERY_N(WARNING, 10) << "Frame not added at t="<< tcheck;
+        VLOG(1) << "Frame not added at t="<< tcheck;
       }
       #else
       if(!viInterface_->addImages(tcheck, images, depthImages)) {
-        LOG_EVERY_N(WARNING, 10) << "Frame not added at t="<< tcheck;
+        VLOG(1) << "Frame not added at t="<< tcheck;
       }
       #endif
       if(!isProcessor && syncDepthImages_) {
