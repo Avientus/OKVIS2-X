@@ -236,7 +236,7 @@ bool ThreadedSlam::addImages(const okvis::Time & stamp,
   else
   {
     if(cameraMeasurementsReceived_.PushNonBlockingDroppingIfFull(frames, cameraInputQueueSize)) {
-      LOG_EVERY_N(WARNING, 50) << "frame drop ";
+      VLOG(1) << "frame drop ";
       return false;
     }
     return true;

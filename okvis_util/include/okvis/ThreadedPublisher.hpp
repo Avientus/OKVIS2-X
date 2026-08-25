@@ -130,7 +130,7 @@ class ThreadedPublisher {
           publisher_->publish(*msg);
         }
       } catch (const std::exception &e) {
-        LOG(WARNING) << "Error publishing message: to topic " << name_ << ". Error message is: " << e.what();
+        VLOG(1) << "Error publishing message: to topic " << name_ << ". Error message is: " << e.what();
       }
     }
 
