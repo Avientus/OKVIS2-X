@@ -1543,7 +1543,7 @@ int Frontend::matchToMap(Estimator &estimator, const okvis::ViParameters& params
   const double strictReprThreshold = 3.0 + f*0.006;
   if (reprErr > strictReprThreshold) {
     if (params.imu.use) {
-      LOG(INFO) << "large reprojection error (" << reprErr << "): run RANSAC";
+      VLOG(1) << "large reprojection error (" << reprErr << "): run RANSAC";
       runRansac = true;
     }
     numInitIter += 2;
@@ -1696,7 +1696,7 @@ int Frontend::matchToMap(Estimator &estimator, const okvis::ViParameters& params
 
   // final two steps optimisation
   if (secondRansac) {
-    LOG(INFO) << "Running RANSAC also with uninitialised landmarks";
+    VLOG(1) << "Running RANSAC also with uninitialised landmarks";
     const bool ransacSuccess = runRansac3d2d(estimator, multiFrame->cameraSystem(), multiFrame,
                                              secondRansac, ransacRemoveOutliers);
     T_WS1 = estimator.pose(StateId(currentFrameId));
@@ -2473,7 +2473,7 @@ bool Frontend::runRansac3d2d(
     }
     return true;
   } else {
-    LOG(INFO) << "RANSAC FAIL: " << numInliers << " inliers, ratio = "
+    VLOG(1) << "RANSAC FAIL: " << numInliers << " inliers, ratio = "
               << double(ransac.inliers_.size())/double(numCorrespondences);
   }
   return false;
